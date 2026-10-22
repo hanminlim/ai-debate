@@ -9,9 +9,11 @@ const NEXT = 'M16 5h2v14h-2zM4 5v14l11-7z'
 const PLAY = 'M7 4v16l13-8z'
 const PAUSE = 'M6 4h4v16H6zM14 4h4v16h-4z'
 const SOUND = 'M4 9v6h4l5 4V5L8 9zm12 3a4 4 0 0 0-2-3.5v7A4 4 0 0 0 16 12zm-2-8v2a6 6 0 0 1 0 12v2a8 8 0 0 0 0-16z'
+const NOTE = 'M9 3v10.6A3.5 3.5 0 1 0 11 17V8h6V3z'
+const NOTE_OFF = 'M9 3v10.6A3.5 3.5 0 1 0 11 17V8h6V3zM3.3 2 2 3.3l18.7 18.7 1.3-1.3z'
 const MUTE = 'M4 9v6h4l5 4V5L8 9zm16.6 0L19 7.4 16.4 10 13.8 7.4 12.4 9l2.6 2.6-2.6 2.6 1.4 1.4 2.6-2.6 2.6 2.6 1.4-1.4-2.6-2.6z'
 
-export default function Remote({ audio, onRate, onMute, paused, waiting, onPrev, onToggle, onNext, notice }) {
+export default function Remote({ audio, onRate, onMute, onSfx, paused, waiting, onPrev, onToggle, onNext, notice }) {
   return (
     <nav className="remote" aria-label="재생 조작">
       {notice ? (
@@ -49,6 +51,10 @@ export default function Remote({ audio, onRate, onMute, paused, waiting, onPrev,
       <button className="rbtn" onClick={onMute} aria-pressed={audio.muted} title="음소거 (M)" aria-label={audio.muted ? '소리 켜기' : '음소거'}>
         <Icon d={audio.muted ? MUTE : SOUND} />
         <kbd>M</kbd>
+      </button>
+      <button className="rbtn" onClick={onSfx} aria-pressed={!audio.sfx} title="효과음 켜기·끄기 (S)" aria-label={audio.sfx ? '효과음 끄기' : '효과음 켜기'}>
+        <Icon d={audio.sfx ? NOTE : NOTE_OFF} />
+        <kbd>S</kbd>
       </button>
     </nav>
   )

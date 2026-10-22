@@ -691,6 +691,7 @@ select,
 /* 발언 중: 말하는 사람에게 조명이 맞는다 */
 .on-air {
   position: absolute;
+  z-index: 2;
   top: 12px;
   left: 12px;
   padding: 1px 8px;
@@ -1254,4 +1255,284 @@ kbd {
   padding: 8px 10px;
   border-radius: 4px;
   word-break: break-word;
+}
+
+/* ===== 무대 연출 ===== */
+
+/* 말하는 동안: 그 컷에 조명을 모으고 나머지 켜진 컷은 한 톤 내린다 */
+.strip.has-speaker .panel.lit:not(.speaking):not(.asked) {
+  filter: brightness(0.7) saturate(0.7);
+}
+.panel {
+  transition: filter 0.35s, box-shadow 0.25s;
+}
+.figure .face {
+  position: relative;
+  z-index: 1;
+}
+.spot {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  width: 260px;
+  height: 190px;
+  transform: translateX(-50%);
+  clip-path: polygon(42% 0, 58% 0, 100% 100%, 0 100%);
+  background: linear-gradient(rgba(255, 238, 170, 0.85), rgba(255, 238, 170, 0));
+  animation: spot-in 0.35s ease-out;
+  pointer-events: none;
+}
+@keyframes spot-in {
+  from { opacity: 0; transform: translateX(-50%) scaleY(0.4); transform-origin: top; }
+}
+.panel.speaking .figure .face {
+  animation: bob 0.42s ease-in-out infinite alternate;
+}
+@keyframes bob {
+  from { transform: translateY(0) rotate(-1.5deg); }
+  to { transform: translateY(-4px) rotate(1.5deg); }
+}
+
+/* 집중선·조명이 컷 머리(이름 띠)를 덮지 않게 그림 칸 안에서만 그린다 */
+.figure {
+  overflow: hidden;
+}
+/* 지목받아 등장할 때 뒤로 번지는 만화 집중선 */
+.speedlines {
+  position: absolute;
+  inset: -40% -20%;
+  background: repeating-conic-gradient(from 0deg at 50% 55%, rgba(0, 0, 0, 0.16) 0deg 1.4deg, transparent 1.4deg 9deg);
+  -webkit-mask: radial-gradient(circle at 50% 55%, transparent 22%, #000 58%);
+  mask: radial-gradient(circle at 50% 55%, transparent 22%, #000 58%);
+  animation: speedlines 1.2s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes speedlines {
+  0% { opacity: 0; transform: scale(0.6); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.15); }
+}
+
+/* 질문: 묻는 컷은 들썩이며 "!?", 받는 컷은 빨간 테두리와 표시 */
+.panel.asking {
+  animation: shake 0.42s ease-in-out 2;
+}
+@keyframes shake {
+  0%, 100% { transform: rotate(var(--tilt)) translateX(0); }
+  25% { transform: rotate(calc(var(--tilt) - 1.2deg)) translateX(-5px); }
+  75% { transform: rotate(calc(var(--tilt) + 1.2deg)) translateX(5px); }
+}
+.fx-text {
+  position: absolute;
+  top: 8px;
+  right: 22px;
+  z-index: 2;
+  font-family: var(--display);
+  font-size: 46px;
+  line-height: 1;
+  color: #ff2d55;
+  -webkit-text-stroke: 2px var(--ink);
+  transform: rotate(-12deg);
+  animation: pop-big 0.38s cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+@keyframes pop-big {
+  from { transform: rotate(-12deg) scale(0); }
+}
+.panel.asked {
+  box-shadow: 6px 6px 0 var(--ink), 0 0 0 4px #ff2d55;
+  z-index: 2;
+}
+.target-tag {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  padding: 2px 9px;
+  border: 2px solid var(--ink);
+  background: #ff2d55;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  transform: rotate(-4deg);
+  animation: pop-big 0.35s cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+/* 기절: 쓰러진 머리 위로 별이 빙글빙글. 바깥은 납작한 타원, 안쪽이 돈다 */
+.dizzy {
+  position: absolute;
+  top: 34px;
+  left: calc(50% - 64px);
+  z-index: 2;
+  width: 76px;
+  height: 76px;
+  transform: scaleY(0.42);
+  pointer-events: none;
+}
+.dizzy b {
+  position: absolute;
+  inset: 0;
+  animation: spin 1.3s linear infinite;
+}
+.dizzy i {
+  position: absolute;
+  font-style: normal;
+  font-size: 30px;
+  line-height: 1;
+  color: var(--spot);
+  -webkit-text-stroke: 1.5px var(--ink);
+}
+.dizzy i:nth-child(1) { top: -12px; left: 26px; }
+.dizzy i:nth-child(2) { top: 44px; left: -6px; }
+.dizzy i:nth-child(3) { top: 44px; left: 58px; }
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 타이핑: 남은 글자는 자리만 차지한다 */
+.typed-rest {
+  visibility: hidden;
+}
+/* 타이핑 커서 */
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: blink 0.8s steps(1) infinite;
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* 입장 변화 도장: 크게 날아와 쾅 */
+.stamp.slam {
+  animation: slam 0.5s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes slam {
+  from { transform: rotate(6deg) scale(3.2); opacity: 0; }
+  to { transform: rotate(6deg) scale(1); opacity: 1; }
+}
+
+/* 라운드 타이틀 컷 */
+.round-banner {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(rgba(255, 255, 255, 0.07) 1.4px, transparent 1.5px) 0 0 / 12px 12px, rgba(10, 12, 30, 0.55);
+  animation: banner-fade 2.1s ease forwards;
+  pointer-events: none;
+}
+.rb-card {
+  display: grid;
+  justify-items: center;
+  padding: 18px 54px 22px;
+  background: var(--spot);
+  color: var(--ink);
+  border: 5px solid var(--ink);
+  box-shadow: 12px 12px 0 var(--ink);
+  transform: rotate(-3deg);
+  animation: banner-slam 2.1s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+.rb-kicker {
+  font-family: var(--display);
+  font-size: 26px;
+  letter-spacing: 0.2em;
+}
+.rb-num {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 128px;
+  line-height: 0.9;
+  -webkit-text-stroke: 3px var(--ink);
+  color: #fff;
+  text-shadow: 6px 6px 0 var(--ink);
+}
+.rb-topic {
+  margin: 10px 0 0;
+  max-width: 28ch;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 800;
+}
+@keyframes banner-slam {
+  0% { transform: rotate(-3deg) scale(2.4); opacity: 0; }
+  16% { transform: rotate(-3deg) scale(0.94); opacity: 1; }
+  24% { transform: rotate(-3deg) scale(1); }
+  82% { transform: rotate(-3deg) scale(1); opacity: 1; }
+  100% { transform: rotate(-3deg) translateY(-50px) scale(0.9); opacity: 0; }
+}
+@keyframes banner-fade {
+  0% { opacity: 0; }
+  10%, 82% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 최종 결론: "결론!" 도장과 뒤로 번지는 망점 */
+.final-cut {
+  position: relative;
+  animation: final-in 0.6s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+@keyframes final-in {
+  from { transform: translateY(30px) scale(0.97); opacity: 0; }
+}
+.final-stamp {
+  position: absolute;
+  top: -34px;
+  right: 170px;
+  padding: 4px 18px;
+  border: 4px solid #d11;
+  background: var(--paper);
+  color: #d11;
+  font-family: var(--display);
+  font-size: 34px;
+  transform: rotate(-9deg);
+  box-shadow: 4px 4px 0 var(--ink);
+  animation: slam-final 0.55s 0.25s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+@keyframes slam-final {
+  from { transform: rotate(-9deg) scale(3); opacity: 0; }
+  to { transform: rotate(-9deg) scale(1); opacity: 1; }
+}
+.final-cut::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 0% 0%, rgba(255, 212, 71, 0.55) 1.6px, transparent 1.7px) 0 0 / 11px 11px;
+  -webkit-mask: radial-gradient(circle at 0% 0%, #000, transparent 45%);
+  mask: radial-gradient(circle at 0% 0%, #000, transparent 45%);
+  pointer-events: none;
+}
+
+/* 사회자 띠: 진행 단계를 만화 화살표로, 말할 때 마이크가 빛난다 */
+.phases {
+  gap: 0;
+}
+.phases li {
+  padding: 4px 14px 4px 18px;
+  margin-left: -6px;
+  border-radius: 0;
+  background: #e9e6da;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%, 8px 50%);
+}
+.phases li:first-child {
+  margin-left: 0;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%);
+}
+.phases li.past {
+  background: #cfcab8;
+}
+.phases li.now {
+  background: var(--ink);
+  color: var(--spot);
+}
+.moderator-cut.speaking .mic-badge {
+  animation: mic-glow 0.9s ease-in-out infinite alternate;
+}
+@keyframes mic-glow {
+  from { box-shadow: 0 0 0 0 rgba(255, 212, 71, 0.8); }
+  to { box-shadow: 0 0 0 7px rgba(255, 212, 71, 0); }
 }

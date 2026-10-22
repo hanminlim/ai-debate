@@ -5,6 +5,7 @@ import { PHASES, runDebate } from './engine.js'
 import AuthPause from './AuthPause.jsx'
 import Gate from './Gate.jsx'
 import Remote from './Remote.jsx'
+import { setSfx, sfx } from './sfx.js'
 import Update from './Update.jsx'
 import { applyEvent, initialView, toPrompt } from './script.js'
 import { VOICES, pauseSpeaking, play, resumeSpeaking, setRate, stopSpeaking, synthesize } from './voice.js'
@@ -43,7 +44,8 @@ export default function App() {
     debaters: [0, 1, 2].map((i) => seatFor(i)),
     maxRounds: 3,
   })
-  const [audio, setAudio] = useState({ rate: 1.2, muted: false })
+  const [audio, setAudio] = useState({ rate: 1.2, muted: false, sfx: true })
+  const [banner, setBanner] = useState(null) // 라운드 시작 타이틀 컷
   const [view, setView] = useState(initialView)
   const [computing, setComputing] = useState(null) // 지금 계산 중인 사람: 'mod' | 토론자 id
   const [speaking, setSpeaking] = useState(null) // 지금 읽는 대본 이벤트
@@ -57,6 +59,21 @@ export default function App() {
   audioRef.current = audio
 
   useEffect(() => setRate(audio.rate), [audio.rate]) // 말하는 도중에도 바로 반영한다
+  useEffect(() => setSfx(audio.sfx), [audio.sfx])
+
+  // 대본이 처음 화면에 오를 때 장면에 맞는 효과음과 연출을 붙인다(이전으로 돌아가 다시 들을 때는 울리지 않는다)
+  const cue = (e) => {
+    if (e.type === 'round') {
+      sfx('round')
+      setBanner({ key: `${e.n}-${Date.now()}`, n: e.n, topic: e.topic })
+    } else if (e.type === 'faint') sfx('faint')
+    else if (e.type === 'final') sfx('fanfare')
+    else if (e.type === 'say') {
+      if (e.kind === 'opinion') sfx('reveal')
+      else if (e.kind === 'question') sfx('question')
+      else if (e.kind === 'conclusion' && e.changed) sfx('stamp')
+    }
+  }
 
   const ready = ({ models: list }) => {
     setModels(list)
@@ -98,6 +115,7 @@ export default function App() {
       if (i >= r.applied) {
         setView((v) => applyEvent(v, e))
         r.applied = i + 1
+        cue(e)
       }
       if (e.type !== 'say') continue
       r.current = i
@@ -141,6 +159,7 @@ export default function App() {
         const choice = await new Promise((resolve) => {
           authRef.current = { kind: e.auth ? 'auth' : 'error', message: e.message, provider: e.provider ?? rest.model.split(':')[0], who: name, canSkip: who !== 'mod', resolve }
           setAuthIssue(authRef.current)
+          sfx('alert')
         })
         authRef.current = null
         setAuthIssue(null)
@@ -266,6 +285,7 @@ export default function App() {
       pauseSpeaking()
     }
   }
+  const toggleSfx = () => setAudio((a) => ({ ...a, sfx: !a.sfx }))
   const changeRate = (d) => setAudio((a) => ({ ...a, rate: clampRate(a.rate + d) }))
   const mute = () => {
     if (!audioRef.current.muted) run.current?.item?.abort() // 지금 읽던 발언도 바로 끊는다
@@ -274,7 +294,7 @@ export default function App() {
 
   const onStage = !['gate', 'manage', 'setup'].includes(status)
   const keys = useRef({})
-  keys.current = { ArrowRight: next, ArrowLeft: prev, ' ': toggle, ArrowUp: () => changeRate(0.1), ArrowDown: () => changeRate(-0.1), m: mute, M: mute }
+  keys.current = { ArrowRight: next, ArrowLeft: prev, ' ': toggle, ArrowUp: () => changeRate(0.1), ArrowDown: () => changeRate(-0.1), m: mute, M: mute, s: toggleSfx, S: toggleSfx }
   useEffect(() => {
     if (!onStage) return
     const onKey = (e) => {
@@ -319,6 +339,7 @@ export default function App() {
       {status === 'gate' && <Gate onReady={ready} />}
       {status === 'manage' && <Gate manual onReady={ready} />}
       {authIssue && <AuthPause issue={authIssue} />}
+      {banner && onStage && <RoundBanner key={banner.key} n={banner.n} topic={banner.topic} onDone={() => setBanner(null)} />}
       {status === 'setup' && <Setup config={config} setConfig={setConfig} models={models} onStart={start} />}
       {onStage && (
         <>
@@ -328,6 +349,8 @@ export default function App() {
             view={view}
             computing={computing}
             speaking={speaking}
+            paused={paused}
+            rate={audio.rate}
             status={status}
             error={error}
             onRetry={start}
@@ -337,6 +360,7 @@ export default function App() {
             audio={audio}
             onRate={changeRate}
             onMute={mute}
+            onSfx={toggleSfx}
             paused={paused}
             waiting={waiting && status === 'running'}
             onPrev={prev}
@@ -529,7 +553,8 @@ function CopyResult({ config, view }) {
   )
 }
 
-function Stage({ config, models, view, computing, speaking, status, error, onRetry, onNew }) {
+function Stage({ config, models, view, computing, speaking, paused, rate, status, error, onRetry, onNew }) {
+  const typing = { paused, rate } // 말풍선 타이핑 속도를 음성 속도·일시정지에 맞춘다
   const [viewed, setViewed] = useState(null)
   const finalRef = useRef(null)
   const { rounds } = view
@@ -549,6 +574,10 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
   useEffect(() => {
     if (view.final) finalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [view.final])
+
+  // 토론자가 말하는 동안에는 그 컷에 조명을 모으고 나머지는 살짝 어둡게 한다
+  const spotlight = live && speaking && speaking.from !== 'mod'
+  const asking = live && speaking?.kind === 'question' ? speaking : null
 
   const phaseIdx = PHASES.findIndex((p) => p.key === view.phase)
   const ended = view.phase === 'final'
@@ -574,9 +603,15 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
             사회자 <span className="chip">{labelOf(models, config.moderator.model)}</span>
           </span>
           <p className={`mod-line ${computing === 'mod' ? 'busy' : ''}`}>
-            {modFainted
-              ? '사회자가 사용량 한도에 걸려 기절했습니다.'
-              : view.modLine || (computing === 'mod' ? '사용자의 문제를 읽고 첫 논제를 정하고 있습니다' : '무대를 준비하고 있습니다')}
+            {modFainted ? (
+              '사회자가 사용량 한도에 걸려 기절했습니다.'
+            ) : view.modLine ? (
+              <Typed text={view.modLine} active={speaking?.from === 'mod' && speaking.text === view.modLine} {...typing} />
+            ) : computing === 'mod' ? (
+              '사용자의 문제를 읽고 첫 논제를 정하고 있습니다'
+            ) : (
+              '무대를 준비하고 있습니다'
+            )}
           </p>
         </div>
         <ol className="phases" aria-label="진행 단계">
@@ -637,10 +672,13 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
             </div>
           </nav>
 
-          <section className="strip" style={{ '--cols': config.debaters.length }}>
+          <section className={`strip ${spotlight ? 'has-speaker' : ''}`} style={{ '--cols': config.debaters.length }}>
             {config.debaters.map((d, i) => (
               <Panel
                 key={`${shown}-${d.id}`}
+                asking={asking?.from === d.id}
+                asked={asking?.to === d.id}
+                typing={live && speaking?.from === d.id && speaking.kind === 'opinion' ? typing : null}
                 d={d}
                 i={i}
                 seat={round.seats[d.id]}
@@ -661,12 +699,16 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
             follow={live && status === 'running'}
             next={live && computing && status === 'running' ? (computing === 'mod' ? '사회자가' : `${byId[computing].name} 님이`) : null}
             speaking={speaking}
+            typing={typing}
           />
         </>
       )}
 
       {view.final && (
         <section className="final-cut" ref={finalRef}>
+          <span className="final-stamp" aria-hidden>
+            결론!
+          </span>
           <div className="final-head">
             <span className="who">최종 결론</span>
             <div className="final-actions">
@@ -699,14 +741,15 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
 }
 
 // reveal: 지금 라운드에서만 불 켜짐·짜잔 연출을 한다(지난 라운드 탭을 볼 때는 바로 보여 준다)
-function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabel, reveal = true }) {
+// asking: 이 토론자가 질문하는 중 / asked: 질문을 받는 중 / typing: 의견 요약을 타이핑하듯 보여 준다
+function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabel, reveal = true, asking, asked, typing }) {
   const left = faintReason === 'auth' || faintReason === 'error' // 기절이 아니라 연결 문제로 빠진 경우
   const [open, setOpen] = useState(false)
   const lit = seat?.lit || fainted
 
   return (
     <article
-      className={`panel ${lit ? 'lit' : 'dark'} ${lit && reveal ? 'reveal' : ''} ${speaking ? 'speaking' : ''} ${fainted ? 'fainted' : ''}`}
+      className={`panel ${lit ? 'lit' : 'dark'} ${lit && reveal ? 'reveal' : ''} ${speaking ? 'speaking' : ''} ${fainted ? 'fainted' : ''} ${asking ? 'asking' : ''} ${asked ? 'asked' : ''}`}
       style={{ '--c': d.color, '--tilt': `${i % 2 ? 0.6 : -0.6}deg` }}
     >
       <header className="panel-head">
@@ -714,7 +757,24 @@ function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabe
         <span className="chip">{modelLabel}</span>
       </header>
       <div className="figure">
+        {lit && reveal && !fainted && <span className="speedlines" aria-hidden />}
+        {speaking && <span className="spot" aria-hidden />}
         <Face seed={d.seed} size={132} silhouette={!lit} talking={speaking} fainted={fainted} />
+        {fainted && !left && (
+          <span className="dizzy" aria-hidden>
+            <b>
+              <i>★</i>
+              <i>✦</i>
+              <i>★</i>
+            </b>
+          </span>
+        )}
+        {asking && (
+          <span className="fx-text" aria-hidden>
+            !?
+          </span>
+        )}
+        {asked && <span className="target-tag">질문 받는 중</span>}
         {!lit && <Thinking on={thinking} />}
         {lit && reveal && !fainted && <span className="burst" aria-hidden>짜잔!</span>}
         {fainted && <span className="ko">{left ? '퇴장' : '기절'}</span>}
@@ -724,7 +784,7 @@ function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabe
       {seat?.summary && (
         <div className="bubbles">
           <div className="bubble">
-            {seat.summary}
+            {typing ? <Typed text={seat.summary} active {...typing} /> : seat.summary}
             <button className="link" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
               {open ? '전문 접기' : '전문 보기'}
             </button>
@@ -750,7 +810,7 @@ function Thinking({ on }) {
 
 const KIND_LABEL = { briefing: '쟁점 정리', verdict: '라운드 정리', conclusion: '결론', question: '질문', answer: '답변' }
 
-function Messenger({ round, byId, moderator, next, speaking, follow }) {
+function Messenger({ round, byId, moderator, next, speaking, follow, typing }) {
   const listRef = useRef(null)
   const sectionRef = useRef(null)
   const { messages } = round
@@ -796,8 +856,8 @@ function Messenger({ round, byId, moderator, next, speaking, follow }) {
                 </span>
                 <div className="msg-bubble">
                   {m.quote && <blockquote>{m.quote}</blockquote>}
-                  {m.changed && <span className="stamp">입장 변화</span>}
-                  {m.text}
+                  {m.changed && <span className="stamp slam">입장 변화</span>}
+                  {isLive ? <Typed text={m.text} active {...typing} /> : m.text}
                 </div>
               </div>
             </li>
@@ -811,6 +871,53 @@ function Messenger({ round, byId, moderator, next, speaking, follow }) {
         )}
       </ol>
     </section>
+  )
+}
+
+// 지금 읽는 말을 음성 속도에 맞춰 타이핑하듯 보여 준다. 일시정지하면 같이 멈춘다
+function Typed({ text, active, paused, rate }) {
+  const [n, setN] = useState(active ? 0 : text.length)
+  const live = useRef({ paused, rate })
+  live.current = { paused, rate }
+  useEffect(() => {
+    if (!active) return setN(text.length)
+    let k = 0
+    setN(0)
+    const t = setInterval(() => {
+      if (live.current.paused) return
+      k += 9 * live.current.rate * 0.04 // 한국어 음성은 1배속에 초당 7~8자 남짓이라 조금 앞서게 9자
+      const m = Math.min(text.length, Math.ceil(k))
+      setN(m)
+      if (m >= text.length) clearInterval(t)
+    }, 40)
+    return () => clearInterval(t)
+  }, [active, text])
+  return (
+    <span aria-label={text}>
+      <span aria-hidden>{text.slice(0, n)}</span>
+      {n < text.length && <span className="caret" aria-hidden />}
+      {/* 아직 안 나온 글자 자리를 투명하게 잡아 두어 말풍선 크기가 타이핑 내내 그대로다 */}
+      <span className="typed-rest" aria-hidden>
+        {text.slice(n)}
+      </span>
+    </span>
+  )
+}
+
+// 라운드가 시작되면 화면 가운데에 타이틀 컷을 쾅 찍었다 거둔다
+function RoundBanner({ n, topic, onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2100)
+    return () => clearTimeout(t)
+  }, [])
+  return (
+    <div className="round-banner" role="status">
+      <div className="rb-card">
+        <span className="rb-kicker">ROUND</span>
+        <strong className="rb-num">{n}</strong>
+        <p className="rb-topic">{topic}</p>
+      </div>
+    </div>
   )
 }
 
