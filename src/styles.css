@@ -626,8 +626,10 @@ select,
   border-radius: 4px;
   animation: breathe 1.2s ease-in-out infinite;
 }
+/* 옆 컷·대화 창이 빛 번짐을 덮지 않게 말하는 컷을 맨 앞으로 */
 .panel.speaking {
-  box-shadow: 6px 6px 0 var(--ink), 0 0 0 4px var(--spot), 0 0 36px 6px color-mix(in srgb, var(--spot) 55%, transparent);
+  z-index: 2;
+  box-shadow: 0 0 0 4px var(--spot), 0 0 36px 6px color-mix(in srgb, var(--spot) 55%, transparent), 10px 10px 0 var(--ink);
 }
 .moderator-cut.speaking .mod-avatar {
   box-shadow: 0 0 0 4px var(--spot);
