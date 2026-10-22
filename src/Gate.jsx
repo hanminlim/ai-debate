@@ -24,7 +24,7 @@ function Mark({ state }) {
   return <span className={`mark ${state}`}>{text}</span>
 }
 
-function ProviderCard({ id, info, models }) {
+function ProviderCard({ id, info, models, onRecheck }) {
   const p = PROVIDERS[id]
   const ok = info?.installed && info.logged_in
   const state = !info ? 'wait' : ok ? 'ok' : 'bad'
@@ -62,6 +62,11 @@ function ProviderCard({ id, info, models }) {
               <span className="muted">쓸 수 있는 모델이 없습니다</span>
             )}
           </div>
+          {onRecheck && models !== null && (
+            <button className="link" onClick={onRecheck} title="후보 모델을 하나씩 짧게 불러 보므로 사용량을 조금 씁니다">
+              모델 다시 검사
+            </button>
+          )}
         </>
       )}
     </article>
@@ -123,6 +128,7 @@ export default function Gate({ onReady }) {
   const [env, setEnv] = useState(null)
   const [models, setModels] = useState({ claude: null, codex: null })
 
+  // force: Claude 모델 후보를 다시 불러 본다(사용량을 쓴다). 평소에는 저장해 둔 결과를 쓴다
   const check = async (force = false) => {
     setEnv(null)
     setModels({ claude: null, codex: null })
@@ -156,7 +162,7 @@ export default function Gate({ onReady }) {
       </section>
 
       <div className="gate-grid">
-        <ProviderCard id="claude" info={env?.claude} models={models.claude} />
+        <ProviderCard id="claude" info={env?.claude} models={models.claude} onRecheck={() => check(true)} />
         <ProviderCard id="codex" info={env?.codex} models={models.codex} />
 
         <article className="gate-card">
@@ -186,7 +192,7 @@ export default function Gate({ onReady }) {
       </div>
 
       <div className="gate-actions">
-        <button className="btn" onClick={() => check(true)} disabled={loading}>
+        <button className="btn" onClick={() => check()} disabled={loading}>
           다시 확인
         </button>
         <button className="btn primary" disabled={!ready} onClick={() => onReady({ models: options, tts: env.tts })}>

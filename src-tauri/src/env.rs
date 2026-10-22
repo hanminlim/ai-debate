@@ -95,7 +95,8 @@ pub fn claude_label(id: &str) -> String {
     format!("Claude {family_cap} {}", version.join("."))
 }
 
-async fn claude_works(id: &str) -> bool {
+// Some(true/false): 되는지 안 되는지 / None: 한도에 걸려 판단할 수 없음
+async fn claude_works(id: &str) -> Option<bool> {
     let args: Vec<String> = [
         "-p", "--safe-mode", "--restricted", "--tools", "", "--no-session-persistence", "--model", id,
         "--system-prompt", "한 단어로만 답한다.", "--output-format", "json",
@@ -103,11 +104,16 @@ async fn claude_works(id: &str) -> bool {
     .iter()
     .map(|s| s.to_string())
     .collect();
-    match run("claude", &args, "ok", &std::env::temp_dir(), None, None).await {
-        Ok(out) => serde_json::from_str::<Value>(&out.stdout)
-            .map(|v| v["is_error"] == Value::Bool(false))
-            .unwrap_or(false),
-        Err(_) => false,
+    let Ok(out) = run("claude", &args, "ok", &std::env::temp_dir(), None, None).await else { return Some(false) };
+    let v: Value = serde_json::from_str(&out.stdout).unwrap_or(Value::Null);
+    if v["is_error"] == Value::Bool(false) {
+        return Some(true);
+    }
+    let text = format!("{} {}", v["result"].as_str().unwrap_or(""), out.stderr);
+    if crate::cli::is_limit_error(v["api_error_status"].as_i64(), &text) {
+        None
+    } else {
+        Some(false)
     }
 }
 
@@ -126,15 +132,21 @@ pub async fn claude_models(cache: PathBuf, force: bool) -> Vec<Model> {
         .map(|id| tokio::spawn(async move { (id, claude_works(id).await) }))
         .collect();
     let mut models = vec![];
+    let mut unsure = false;
     for p in probes {
-        if let Ok((id, true)) = p.await {
-            models.push(Model { id: id.to_string(), label: claude_label(id) });
+        match p.await {
+            Ok((id, Some(true))) => models.push(Model { id: id.to_string(), label: claude_label(id) }),
+            Ok((_, None)) => unsure = true,
+            _ => {}
         }
     }
-    if let Some(dir) = cache.parent() {
-        let _ = tokio::fs::create_dir_all(dir).await;
+    // 한도 때문에 판단 못 한 모델이 있으면 저장하지 않는다. 저장하면 그 모델이 계속 빠진 채로 남는다
+    if !unsure {
+        if let Some(dir) = cache.parent() {
+            let _ = tokio::fs::create_dir_all(dir).await;
+        }
+        let _ = tokio::fs::write(&cache, serde_json::to_string(&models).unwrap_or_default()).await;
     }
-    let _ = tokio::fs::write(&cache, serde_json::to_string(&models).unwrap_or_default()).await;
     models
 }
 

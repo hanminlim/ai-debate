@@ -82,10 +82,12 @@ async fn tts(text: String, voice: String) -> Result<Response, String> {
     Ok(Response::new(bytes))
 }
 
-// 시스템 설정 화면과 설치 안내 페이지만 연다
+const OPENABLE: &[&str] = &["x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"];
+
+// 화면에서 실제로 여는 주소(파일·폴더 권한 설정)만 연다
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
-    if !(url.starts_with("x-apple.systempreferences:") || url.starts_with("https://")) {
+    if !OPENABLE.contains(&url.as_str()) {
         return Err("열 수 없는 주소입니다".into());
     }
     std::process::Command::new("open").arg(url).status().map(|_| ()).map_err(|e| e.to_string())
@@ -120,7 +122,10 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            if let Some(mut child) = handle.state::<AppState>().tts.lock().unwrap().take() {
+            let state = handle.state::<AppState>();
+            cli::cancel_all(&state.running);
+            let child = state.tts.lock().unwrap().take();
+            if let Some(mut child) = child {
                 let _ = child.kill();
             }
         }

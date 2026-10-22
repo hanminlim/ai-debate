@@ -24,7 +24,7 @@ function fakeAsk({ doneAt = 1, question } = {}) {
     const name = req.system.match(/"(.+?)"/)?.[1]
     const data = {
       topic: { topic: '논제1', intro: '시작' },
-      path: { path: '/repo/app' },
+      index: { index: 0 },
       opinion: { opinion: `${name} 의견 전문`, summary: `${name} 요약` },
       overview: { overview: '쟁점', briefings: [{ id: 'd1', contrast: '솔은 반대' }, { id: 'zz', contrast: '없는 id' }] },
       answer: { answer: '답' },
@@ -132,28 +132,58 @@ test('사회자가 한도에 걸리면 기절 이벤트를 내고 토론을 멈�
   assert.equal(events.at(-1).who, 'mod')
 })
 
-test('코드 폴더를 주면 모든 호출에 실어 보내고 프롬프트에 코드 확인 지시를 넣는다', async () => {
-  const { ask, prompts } = fakeAsk()
+// 의견·답변 호출인지: 스키마 첫 필드로 가린다
+const step = (p) => Object.keys(p.schema.properties)[0]
+
+test('코드는 Claude 토론자의 의견·답변 단계에서만 열고, 사회자와 나머지 단계는 도구 없이 부른다', async () => {
+  const question = (req) =>
+    req.system.includes('"솔"') ? { ask: true, to: 'd1', question: '근거?' } : { ask: false, to: '', question: '' }
+  const { ask, prompts } = fakeAsk({ question })
   await runDebate({ ...config(1), codebase: '/repo' }, { ask, emit: () => {} })
-  assert.ok(prompts.every((p) => p.codebase === '/repo' && p.system.includes('Read·Grep·Glob')))
+  const withCode = prompts.filter((p) => p.codebase === '/repo')
+  assert.deepEqual([...new Set(withCode.map(step))].sort(), ['answer', 'opinion'])
+  assert.ok(withCode.every((p) => p.system.includes('Read·Grep·Glob')))
+  assert.ok(prompts.filter((p) => !withCode.includes(p)).every((p) => !p.codebase && !p.system.includes('Read·Grep·Glob')))
 })
 
-test('프로젝트 목록을 주면 사회자가 하나 골라 이후 모든 호출을 그 폴더로 보낸다', async () => {
+test('Codex 토론자에게는 코드 폴더를 열지 않는다', async () => {
+  const { ask, prompts } = fakeAsk()
+  const mixed = { ...config(1), codebase: '/repo', debaters: [{ ...debaters[0], model: 'codex:gpt-6-luna' }, debaters[1]] }
+  await runDebate(mixed, { ask, emit: () => {} })
+  const codexCalls = prompts.filter((p) => p.model === 'codex:gpt-6-luna')
+  assert.ok(codexCalls.length > 0 && codexCalls.every((p) => !p.codebase))
+  assert.ok(prompts.some((p) => p.model === 'haiku' && p.codebase === '/repo'))
+})
+
+test('프로젝트 목록을 주면 사회자가 번호로 고르고, 홈 경로는 보내지 않는다', async () => {
   const { ask, prompts } = fakeAsk()
   const events = []
-  await runDebate({ ...config(1), projects: ['/repo/app', '/repo/other'] }, { ask, emit: (e) => events.push(e) })
-  assert.deepEqual(prompts[0].schema.properties.path.enum, ['/repo/app', '/repo/other', ''])
-  assert.equal(prompts[0].codebase, '') // 고르기 전에는 아무 폴더도 열지 않는다
-  assert.ok(prompts.slice(1).every((p) => p.codebase === '/repo/app'))
-  assert.deepEqual(events.find((e) => e.type === 'codebase'), { type: 'codebase', path: '/repo/app' })
-  assert.equal(events.reduce(applyEvent, initialView).codebase, '/repo/app')
+  await runDebate({ ...config(1), projects: ['/Users/me/code/app', '/Users/me/code/other'] }, { ask, emit: (e) => events.push(e) })
+  assert.deepEqual(prompts[0].schema.properties.index.enum, [-1, 0, 1])
+  assert.ok(!prompts[0].prompt.includes('/Users/me')) // 폴더 이름(상위/이름)만 보낸다
+  assert.match(prompts[0].prompt, /0\. code\/app/)
+  assert.ok(!prompts[0].codebase) // 고르기 전에는 아무 폴더도 열지 않는다
+  assert.deepEqual(events.find((e) => e.type === 'codebase'), { type: 'codebase', path: '/Users/me/code/app' })
+  assert.ok(prompts.some((p) => p.codebase === '/Users/me/code/app'))
 })
 
 test('프로젝트 목록이 없으면 고르는 단계 없이 일반 토론을 한다', async () => {
   const { ask, prompts } = fakeAsk()
   await runDebate(config(1), { ask, emit: () => {} })
-  assert.ok(!prompts.some((p) => 'path' in p.schema.properties))
+  assert.ok(!prompts.some((p) => 'index' in p.schema.properties))
   assert.ok(prompts.every((p) => !p.codebase && !p.system.includes('Read·Grep·Glob')))
+})
+
+test('응답이 비어 오면 그 단계만 한 번 더 부른다', async () => {
+  const base = fakeAsk().ask
+  let empties = 0
+  const ask = async (req) => {
+    if ('overview' in req.schema.properties && empties++ === 0) return { data: null }
+    return base(req)
+  }
+  const result = await runDebate(config(1), { ask, emit: () => {} })
+  assert.equal(empties, 2)
+  assert.ok(result.final)
 })
 
 test('질문은 바로 상대 답으로 이어지고, 자기 자신 지목은 버린다', async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ask as askApp, listProjects } from './api.js'
+import { ask, listProjects } from './api.js'
 import { ANCHOR, avatarUri, randomSeed } from './avatar.js'
 import { PHASES, runDebate } from './engine.js'
 import Gate from './Gate.jsx'
@@ -28,17 +28,6 @@ const seatFor = (i, model = '') => ({
 
 // 연결 확인에서 받은 모델 중 기본값: 사회자는 Opus, 토론자는 Sonnet 계열을 먼저 고른다
 const pick = (models, word) => (models.find((m) => m.value.includes(word)) ?? models[0])?.value ?? ''
-
-async function ask(req, signal) {
-  // shortcut: 실패하면 한 번만 다시 부른다. 잦으면 지수 백오프로 바꾼다
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await askApp(req, signal)
-    } catch (e) {
-      if (e.limit || signal?.aborted || attempt >= 1) throw e // 한도는 다시 불러도 안 풀린다
-    }
-  }
-}
 
 const ROUND_END = new Set(['verdict', 'final'])
 
@@ -134,17 +123,20 @@ export default function App() {
     try {
       // 문제가 가리키는 프로젝트를 사회자가 고를 수 있게 이 맥의 프로젝트 폴더 목록을 넘긴다
       const projects = await listProjects(config.problem)
+      if (r.ctrl.signal.aborted) return
       await runDebate(
         { ...config, projects },
         {
           ask: (req) => ask(req, r.ctrl.signal),
           emit: (e) => {
-            if (e.type === 'say') e.audio = synthesize(e.text, voiceOf(e.from))
+            if (r.ctrl.signal.aborted) return
+            // 음소거 중에는 음성을 만들지 않는다(다시 켜면 그 발언은 시스템 음성으로 읽는다)
+            if (e.type === 'say') e.audio = audioRef.current.muted ? Promise.resolve(null) : synthesize(e.text, voiceOf(e.from))
             r.events.push(e)
             wake(r)
             pump(r)
           },
-          live: setComputing,
+          live: (who) => !r.ctrl.signal.aborted && setComputing(who),
         },
       )
       r.engineDone = true

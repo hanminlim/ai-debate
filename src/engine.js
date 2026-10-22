@@ -17,10 +17,9 @@ const NO_MARKDOWN = ' 화면 말풍선에 그대로 뜨고 음성으로 읽히�
 const CODE_NOTE =
   ' 토론 대상 코드베이스가 현재 작업 폴더에 있다. 주장할 때는 Read·Grep·Glob 으로 실제 코드를 확인하고 파일 경로를 근거로 든다. 탐색은 필요한 만큼만 짧게 한다.'
 
-const moderatorSystem = (code) =>
+const MODERATOR_SYSTEM =
   '너는 AI 토론 프로그램의 사회자다. 사용자가 맡긴 문제를 풀기 위해 논제를 설계하고, 토론자들의 의견 차이를 드러내고, 결론으로 이끈다. 공정하고 간결하게 한국어로 말한다.' +
-  NO_MARKDOWN +
-  (code ? CODE_NOTE : '')
+  NO_MARKDOWN
 
 const debaterSystem = (d, code) =>
   `너는 AI 토론 프로그램의 토론자 "${d.name}"이다. 너의 관점: ${d.stance || '자유'}. ` +
@@ -37,11 +36,16 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
   const rounds = []
   const fainted = new Set() // 사용량 한도에 걸려 쓰러진 토론자
 
-  // live: 지금 누가 계산 중인지. 재생 대기열을 건너뛰고 바로 화면에 반영된다
+  // live: 지금 누가 계산 중인지. 재생 대기열을 건너뛰고 바로 화면에 반영된다.
+  // 구조화 응답이 비어 오면 그 단계만 한 번 더 부른다(토론 전체를 다시 하지 않게)
   const call = async (who, req) => {
     live(who)
     try {
-      return (await ask(req)).data
+      for (let attempt = 0; ; attempt++) {
+        const { data } = await ask(req)
+        if (data) return data
+        if (attempt >= 1) throw new Error('모델 응답이 형식에 맞지 않습니다')
+      }
     } finally {
       live(null)
     }
@@ -50,7 +54,7 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
   // 사회자가 쓰러지면 토론을 멈춘다. 호출부는 faint 표시가 붙은 오류를 받는다
   const askModerator = async (prompt, schema) => {
     try {
-      return await call('mod', { model: moderator.model, system: moderatorSystem(codebase), prompt, schema, codebase })
+      return await call('mod', { model: moderator.model, system: MODERATOR_SYSTEM, prompt, schema })
     } catch (e) {
       if (e.limit) {
         emit({ type: 'faint', who: 'mod' })
@@ -59,10 +63,13 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
       throw e
     }
   }
-  // 토론자가 쓰러지면 null 을 돌려주고, 그 사람을 빼고 계속한다
-  const askDebater = async (d, prompt, schema) => {
+  // 토론자가 쓰러지면 null 을 돌려주고, 그 사람을 빼고 계속한다.
+  // 코드는 의견·답변처럼 근거가 필요한 단계에서만 연다. 호출마다 저장소를 새로 읽어 토큰이 크기 때문
+  const askDebater = async (d, prompt, schema, withCode = false) => {
+    // codex 샌드박스는 디스크 읽기를 막지 못해, 저장소 속 지시에 끌려 폴더 밖을 읽을 수 있다. 폴더에 가둘 수 있는 claude 만 코드를 연다
+    const code = withCode && !d.model.startsWith('codex:') ? codebase : ''
     try {
-      return await call(d.id, { model: d.model, system: debaterSystem(d, codebase), prompt, schema, codebase })
+      return await call(d.id, { model: d.model, system: debaterSystem(d, code), prompt, schema, codebase: code })
     } catch (e) {
       if (!e.limit) throw e
       fainted.add(d.id)
@@ -89,13 +96,14 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
 
   phase('topic')
   if (!codebase && projects.length) {
-    // 사회자는 폴더 이름만 보고 고른다. 내용은 고른 뒤에야 읽을 수 있다
+    // 사회자는 번호와 폴더 이름만 보고 고른다. 홈 경로는 보내지 않고, 내용은 고른 뒤에야 읽을 수 있다
+    const names = projects.map((p, i) => `${i}. ${p.split('/').slice(-2).join('/')}`).join('\n')
     const pick = await askModerator(
-      `사용자가 풀려는 문제:\n${problem}\n\n이 컴퓨터의 프로젝트 폴더:\n${projects.join('\n')}\n\n문제가 이 중 특정 프로젝트의 코드에 대한 것이면 가장 알맞은 폴더 경로 하나를 path 로 골라라. 프로젝트 이름이 정확히 같지 않아도 줄임말·한글 이름·비슷한 이름이면 고른다. 코드와 무관한 문제면 빈 문자열.`,
-      obj({ path: { type: 'string', enum: [...projects, ''] } }),
+      `사용자가 풀려는 문제:\n${problem}\n\n이 컴퓨터의 프로젝트 폴더:\n${names}\n\n문제가 이 중 특정 프로젝트의 코드에 대한 것이면 가장 알맞은 폴더 번호를 index 로 골라라. 프로젝트 이름이 정확히 같지 않아도 줄임말·한글 이름·비슷한 이름이면 고른다. 코드와 무관한 문제면 -1.`,
+      obj({ index: { type: 'integer', enum: [-1, ...projects.keys()] } }),
     )
-    if (pick.path) {
-      codebase = pick.path
+    if (projects[pick.index]) {
+      codebase = projects[pick.index]
       emit({ type: 'codebase', path: codebase })
       say('mod', 'relay', `${codebase.split('/').at(-1)} 프로젝트 코드를 직접 보면서 토론하겠습니다.`)
     }
@@ -128,6 +136,7 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
         d,
         `${context(d, round)}\n\n${heard ? `앞서 발언한 토론자:\n${heard}\n\n앞사람 발언을 들었다. 동의하거나 반박할 지점이 있으면 짚으면서 ` : ''}이 논제에 대한 너의 의견을 밝혀라. opinion 은 근거를 포함한 전문(400자 안팎), summary 는 말로 읽을 한두 문장 요약이다.`,
         obj({ opinion: str, summary: str }),
+        true,
       )
       if (!data) continue
       round.opinions[d.id] = data.opinion
@@ -177,6 +186,7 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
         target,
         `${context(target, round)}\n\n너의 의견: ${round.opinions[target.id]}\n\n사회자를 통해 ${d.name}의 질문이 왔다: ${asked.question}\n\n세 문장 이내로 성실하게 답하라.`,
         obj({ answer: str }),
+        true,
       )
       if (!reply) continue
       round.qa.push({ from: d.id, to: target.id, question: asked.question, answer: reply.answer })

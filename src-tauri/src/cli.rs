@@ -51,15 +51,26 @@ pub async fn shell_path() -> &'static str {
         .await
 }
 
-// API 키가 환경에 있으면 CLI 가 그걸로 과금 호출한다. 구독 로그인으로만 부르게 지운다
+// API 키·다른 제공자 설정이 환경에 있으면 CLI 가 그쪽(과금)으로 호출한다.
+// 지울 목록을 쫓아가는 대신 꼭 필요한 변수만 넘겨 구독 로그인으로만 부르게 한다
+const PASS_ENV: &[&str] = &["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
+
+pub fn pass_env() -> Vec<(String, String)> {
+    PASS_ENV.iter().filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v))).collect()
+}
+
 pub async fn command(program: &str) -> Command {
     let mut cmd = Command::new(program);
-    cmd.env("PATH", shell_path().await)
-        .env_remove("ANTHROPIC_API_KEY")
-        .env_remove("ANTHROPIC_AUTH_TOKEN")
-        .env_remove("OPENAI_API_KEY")
-        .kill_on_drop(true);
+    cmd.env_clear().envs(pass_env()).env("PATH", shell_path().await).kill_on_drop(true);
     cmd
+}
+
+// 앱을 끌 때 아직 도는 호출을 모두 끊는다(종료 시에는 kill_on_drop 이 동작하지 않는다)
+pub fn cancel_all(running: &Running) {
+    let pids: Vec<u32> = running.lock().unwrap().drain().map(|(_, pid)| pid).collect();
+    for pid in pids {
+        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+    }
 }
 
 pub struct Output {
@@ -276,6 +287,18 @@ mod tests {
         assert_eq!(sandbox, "read-only");
         assert!(a.contains(&"--ignore-user-config".to_string()));
         assert_eq!(a.last().unwrap(), "-"); // 프롬프트는 stdin 으로
+    }
+
+    #[test]
+    fn billing_env_vars_are_never_passed() {
+        std::env::set_var("ANTHROPIC_API_KEY", "x");
+        std::env::set_var("CODEX_API_KEY", "x");
+        std::env::set_var("ANTHROPIC_BASE_URL", "x");
+        let keys: Vec<String> = pass_env().into_iter().map(|(k, _)| k).collect();
+        assert!(keys.contains(&"HOME".to_string()));
+        for k in ["ANTHROPIC_API_KEY", "CODEX_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY"] {
+            assert!(!keys.contains(&k.to_string()), "{k}");
+        }
     }
 
     #[test]
