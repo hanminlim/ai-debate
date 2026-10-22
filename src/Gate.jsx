@@ -1,6 +1,6 @@
 // 연결 확인: CLI 설치·로그인, 폴더 접근 권한, 쓸 수 있는 모델을 시작 전에 모두 확인한다
 import { useEffect, useRef, useState } from 'react'
-import { claudeModels, codexModels, envCheck, onTtsProgress, openUrl, ttsInstall } from './api.js'
+import { claudeModels, codexModels, envCheck, onTtsProgress, openLogin, openUrl, ttsInstall, verifyLogin } from './api.js'
 
 const PRIVACY_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'
 
@@ -24,9 +24,9 @@ function Mark({ state }) {
   return <span className={`mark ${state}`}>{text}</span>
 }
 
-function ProviderCard({ id, info, models, onRecheck }) {
+function ProviderCard({ id, info, models, onRecheck, onLoggedIn }) {
   const p = PROVIDERS[id]
-  const ok = info?.installed && info.logged_in
+  const ok = info?.installed && info.logged_in && !info.expired
   const state = !info ? 'wait' : ok ? 'ok' : 'bad'
   return (
     <article className="gate-card">
@@ -38,6 +38,20 @@ function ProviderCard({ id, info, models, onRecheck }) {
         <>
           <p>설치돼 있지 않습니다. 터미널에서 설치한 뒤 로그인하세요.</p>
           <pre>{`${p.install}\n${p.login}`}</pre>
+        </>
+      )}
+      {info?.expired && (
+        <>
+          <p>로그인이 만료됐습니다. 저장된 로그인 정보는 있지만 서버에서 거절합니다. 다시 로그인해 주세요.</p>
+          <pre>{p.login}</pre>
+          <div className="pause-actions">
+            <button className="btn small" onClick={() => openLogin(id)}>
+              다시 로그인
+            </button>
+            <button className="btn small" onClick={onLoggedIn}>
+              로그인했어요
+            </button>
+          </div>
         </>
       )}
       {info?.installed && !info.logged_in && (
@@ -124,7 +138,8 @@ function TtsCard({ tts, onInstalled }) {
   )
 }
 
-export default function Gate({ onReady }) {
+// manual: 설정 화면에서 "연결 관리"로 연 경우. 자동으로 넘어가지 않고 계속 보여 준다
+export default function Gate({ onReady, manual = false }) {
   const [env, setEnv] = useState(null)
   const [models, setModels] = useState({ claude: null, codex: null })
 
@@ -134,11 +149,21 @@ export default function Gate({ onReady }) {
     setModels({ claude: null, codex: null })
     const report = await envCheck()
     setEnv(report)
-    // 로그인된 쪽만 모델을 확인한다. Claude 는 후보를 실제로 짧게 불러 보므로 처음엔 시간이 걸린다
-    const [claude, codex] = await Promise.all([
-      report.claude.logged_in ? claudeModels(force) : [],
-      report.codex.logged_in ? codexModels() : [],
-    ])
+    // login status 는 저장된 정보만 봐서 만료를 못 잡는다. 로그인된 쪽은 짧은 호출로 실제로 살아 있는지 확인한다
+    const alive = async (id) => {
+      if (!report[id].logged_in) return false
+      try {
+        await verifyLogin(id)
+        return true
+      } catch (e) {
+        if (String(e).startsWith('AUTH:')) report[id] = { ...report[id], expired: true }
+        return !String(e).startsWith('AUTH:')
+      }
+    }
+    const [claudeOk, codexOk] = await Promise.all([alive('claude'), alive('codex')])
+    setEnv({ ...report })
+    // 살아 있는 쪽만 모델을 확인한다. Claude 는 후보를 실제로 짧게 불러 보므로 처음엔 시간이 걸린다
+    const [claude, codex] = await Promise.all([claudeOk ? claudeModels(force) : [], codexOk ? codexModels() : []])
     setModels({ claude, codex })
   }
 
@@ -151,6 +176,34 @@ export default function Gate({ onReady }) {
   const loading = !env || (env.claude.logged_in && models.claude === null) || (env.codex.logged_in && models.codex === null)
   const ready = !loading && foldersOk && options.length > 0
 
+  // 연결이 덜 된 동안 몇 초마다 다시 본다. 터미널에서 설치·로그인을 마치거나 권한을 켜면 버튼 없이 바로 바뀐다
+  const snapshot = (r) =>
+    JSON.stringify([r.claude.installed, r.claude.logged_in, r.codex.installed, r.codex.logged_in, r.folders.map((f) => f.ok), r.tts])
+  const pending = env && (!foldersOk || !options.length) && !loading
+  useEffect(() => {
+    if (!pending) return
+    const t = setInterval(async () => {
+      const r = await envCheck()
+      if (snapshot(r) !== snapshot(env)) check()
+    }, 4000)
+    return () => clearInterval(t)
+  }, [pending, env])
+
+  // 필수 연결(모델 하나 이상 + 폴더 권한)이 갖춰지면 이 화면을 건너뛴다. 빠진 게 있을 때만 보여 준다
+  const [shown, setShown] = useState(manual)
+  useEffect(() => {
+    if (ready && !manual) onReady({ models: options, tts: env.tts })
+    else if (!loading) setShown(true)
+  }, [ready, loading])
+
+  if (!shown) {
+    return (
+      <main className="gate">
+        <p className="gate-checking">연결 확인 중…</p>
+      </main>
+    )
+  }
+
   return (
     <main className="gate">
       <section className="gate-intro">
@@ -162,8 +215,8 @@ export default function Gate({ onReady }) {
       </section>
 
       <div className="gate-grid">
-        <ProviderCard id="claude" info={env?.claude} models={models.claude} onRecheck={() => check(true)} />
-        <ProviderCard id="codex" info={env?.codex} models={models.codex} />
+        <ProviderCard id="claude" info={env?.claude} models={models.claude} onRecheck={() => check(true)} onLoggedIn={() => check()} />
+        <ProviderCard id="codex" info={env?.codex} models={models.codex} onLoggedIn={() => check()} />
 
         <article className="gate-card">
           <header>
@@ -196,7 +249,7 @@ export default function Gate({ onReady }) {
           다시 확인
         </button>
         <button className="btn primary" disabled={!ready} onClick={() => onReady({ models: options, tts: env.tts })}>
-          {loading ? '확인하는 중…' : ready ? '시작하기' : '연결이 필요합니다'}
+          {loading ? '확인하는 중…' : ready ? (manual ? '설정으로 돌아가기' : '시작하기') : '연결이 필요합니다'}
         </button>
       </div>
     </main>

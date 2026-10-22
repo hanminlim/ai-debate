@@ -186,6 +186,22 @@ test('응답이 비어 오면 그 단계만 한 번 더 부른다', async () => 
   assert.ok(result.final)
 })
 
+test('두 번째 라운드부터는 앞 라운드 재생이 끝나길 기다린 뒤 시작한다', async () => {
+  const { ask } = fakeAsk({ doneAt: 2 })
+  const events = []
+  let waits = 0
+  await runDebate(config(2), {
+    ask,
+    emit: (e) => events.push(e),
+    caughtUp: async () => {
+      waits++
+      // 기다리는 시점에는 아직 2라운드가 시작되지 않았어야 한다
+      assert.equal(events.filter((e) => e.type === 'round').length, 1)
+    },
+  })
+  assert.equal(waits, 1)
+})
+
 test('질문은 바로 상대 답으로 이어지고, 자기 자신 지목은 버린다', async () => {
   const question = (req) =>
     req.system.includes('"솔"')

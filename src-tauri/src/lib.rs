@@ -82,6 +82,31 @@ async fn tts(text: String, voice: String) -> Result<Response, String> {
     Ok(Response::new(bytes))
 }
 
+#[tauri::command]
+async fn verify_login(provider: String) -> Result<(), String> {
+    cli::verify(&provider).await
+}
+
+// 다시 로그인: 터미널에서 로그인 명령을 실행하는 .command 파일을 만들어 연다(자동화 권한이 필요 없다)
+#[tauri::command]
+async fn open_login(app: AppHandle, provider: String) -> Result<(), String> {
+    let cmd = match provider.as_str() {
+        "claude" => "claude auth login",
+        "codex" => "codex logout; codex login",
+        _ => return Err("알 수 없는 제공자입니다".into()),
+    };
+    let dir = data_dir(&app);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let file = dir.join(format!("login-{provider}.command"));
+    let script = format!(
+        "#!/bin/zsh -l\necho 'AI Debate: {provider} 에 다시 로그인합니다.'\n{cmd}\necho\necho '끝났으면 이 창을 닫고 앱에서 \"로그인했어요\" 를 누르세요.'\n"
+    );
+    std::fs::write(&file, script).map_err(|e| e.to_string())?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+    std::process::Command::new("open").arg(&file).status().map(|_| ()).map_err(|e| e.to_string())
+}
+
 const OPENABLE: &[&str] = &["x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"];
 
 // 화면에서 실제로 여는 주소(파일·폴더 권한 설정)만 연다
@@ -95,6 +120,8 @@ fn open_url(url: String) -> Result<(), String> {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState { running: Default::default(), tts: Mutex::new(None) })
         .setup(|app| {
             let dir = data_dir(app.handle()).join("tts");
@@ -115,7 +142,9 @@ pub fn run() {
             tts_status,
             tts_install,
             tts,
-            open_url
+            open_url,
+            verify_login,
+            open_login
         ])
         .build(tauri::generate_context!())
         .expect("앱을 시작하지 못했습니다");

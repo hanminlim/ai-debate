@@ -204,12 +204,28 @@ pub struct AskRes {
     pub data: Value,
 }
 
-fn limit_or(msg: String) -> String {
-    if is_limit_error(None, &msg) {
+// 로그인이 끊겼는지: 토론을 멈추고 다시 로그인하면 이어서 진행한다
+pub fn is_auth_error(text: &str) -> bool {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"(?i)refresh token|sign in again|log in again|please (run )?/?login|not logged in|unauthorized \(401\)|status 401|authentication_error|invalid api key|oauth token (has )?expired|token (has )?expired|invalid_grant").unwrap()
+    });
+    re.is_match(text)
+}
+
+// 화면이 오류 종류를 가릴 수 있게 앞에 표시를 붙인다(AUTH: 로그인 끊김, LIMIT: 사용량 한도)
+fn classify(status: Option<i64>, msg: String) -> String {
+    if is_auth_error(&msg) || status == Some(401) {
+        format!("AUTH:{msg}")
+    } else if is_limit_error(status, &msg) {
         format!("LIMIT:{msg}")
     } else {
         msg
     }
+}
+
+fn limit_or(msg: String) -> String {
+    classify(None, msg)
 }
 
 pub async fn ask(req: AskReq, running: &Running) -> Result<AskRes, String> {
@@ -223,8 +239,7 @@ pub async fn ask(req: AskReq, running: &Running) -> Result<AskRes, String> {
                 .map_err(|_| limit_or(if out.stderr.is_empty() { out.stdout.clone() } else { out.stderr.clone() }))?;
             let text = parsed["result"].as_str().unwrap_or("").to_string();
             if parsed["is_error"].as_bool().unwrap_or(false) {
-                let status = parsed["api_error_status"].as_i64();
-                return Err(if is_limit_error(status, &text) { format!("LIMIT:{text}") } else { text });
+                return Err(classify(parsed["api_error_status"].as_i64(), text));
             }
             Ok(AskRes { data: parsed["structured_output"].clone(), text })
         }
@@ -256,6 +271,35 @@ pub async fn ask(req: AskReq, running: &Running) -> Result<AskRes, String> {
         }
         other => Err(format!("알 수 없는 제공자: {other}")),
     }
+}
+
+// 로그인이 실제로 살아 있는지 아주 짧은 호출로 확인한다(login status 는 저장된 정보만 보고 만료를 못 잡는다)
+pub async fn verify(provider: &str) -> Result<(), String> {
+    let tmp = std::env::temp_dir();
+    let out = match provider {
+        "claude" => {
+            let args = claude_args("haiku", "한 단어로만 답한다.", None, false);
+            let out = run("claude", &args, "ok", &tmp, None, None).await?;
+            let v: Value = serde_json::from_str(&out.stdout).unwrap_or(Value::Null);
+            if v["is_error"] == Value::Bool(false) {
+                return Ok(());
+            }
+            format!("{} {}", v["result"].as_str().unwrap_or(""), out.stderr)
+        }
+        "codex" => {
+            let args: Vec<String> = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "-"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let out = run("codex", &args, "Reply with the single word OK. Do not run any commands.", &tmp, None, None).await?;
+            if out.ok {
+                return Ok(());
+            }
+            format!("{}\n{}", out.stderr, out.stdout)
+        }
+        other => return Err(format!("알 수 없는 제공자: {other}")),
+    };
+    Err(classify(None, out.trim().chars().rev().take(400).collect::<Vec<_>>().into_iter().rev().collect()))
 }
 
 pub fn cancel(id: &str, running: &Running) {
@@ -302,6 +346,16 @@ mod tests {
     }
 
     #[test]
+    fn detects_expired_logins() {
+        let codex = "ERROR codex_login::auth::manager: Failed to refresh token: Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
+        assert!(classify(None, codex.into()).starts_with("AUTH:"));
+        assert!(classify(None, "ERROR: workspace routing discovery unauthorized (401)".into()).starts_with("AUTH:"));
+        assert!(classify(None, "OAuth token has expired. Please run /login".into()).starts_with("AUTH:"));
+        assert!(classify(Some(429), "rate limited".into()).starts_with("LIMIT:"));
+        assert_eq!(classify(Some(500), "Internal server error".into()), "Internal server error");
+    }
+
+    #[test]
     fn detects_usage_limits() {
         assert!(is_limit_error(Some(429), ""));
         assert!(is_limit_error(None, "Claude AI usage limit reached|1792660800"));
@@ -333,6 +387,15 @@ mod tests {
             let answer = res.data["answer"].as_str().unwrap_or("");
             println!("{provider}: {answer}");
             assert!(answer.contains("ai-debate"), "{provider} 답: {answer}");
+        }
+    }
+
+    // 실제 로그인 상태를 짧게 확인한다. cargo test -- --ignored 로만 돈다
+    #[tokio::test]
+    #[ignore]
+    async fn live_verify_logins() {
+        for provider in ["claude", "codex"] {
+            println!("{provider}: {:?}", verify(provider).await);
         }
     }
 

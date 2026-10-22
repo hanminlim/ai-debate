@@ -1,5 +1,5 @@
 // 엔진이 낸 대본 이벤트를 화면 상태에 하나씩 반영한다
-export const initialView = { phase: 'topic', modLine: '', rounds: [], final: null, fainted: [], codebase: '' }
+export const initialView = { phase: 'topic', modLine: '', rounds: [], final: null, fainted: [], faintReason: {}, codebase: '' }
 
 // 첫 의견은 컷에, 나머지 발언은 메신저 창에 쌓는다. 지목·논제 멘트는 상단 사회자 띠에만 둔다
 const STRIP_ONLY = new Set(['intro', 'call', 'opinion', 'final'])
@@ -7,7 +7,8 @@ const STRIP_ONLY = new Set(['intro', 'call', 'opinion', 'final'])
 export function applyEvent(view, e) {
   if (e.type === 'phase') return { ...view, phase: e.phase }
   if (e.type === 'final') return { ...view, final: e.final }
-  if (e.type === 'faint') return { ...view, fainted: [...view.fainted, e.who] }
+  if (e.type === 'faint')
+    return { ...view, fainted: [...view.fainted, e.who], faintReason: { ...view.faintReason, [e.who]: e.reason ?? 'limit' } }
   if (e.type === 'codebase') return { ...view, codebase: e.path }
   if (e.type === 'round') return { ...view, rounds: [...view.rounds, { n: e.n, topic: e.topic, seats: {}, messages: [] }] }
   if (e.type !== 'say') return view

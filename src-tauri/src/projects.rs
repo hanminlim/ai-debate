@@ -8,6 +8,8 @@ const ROOTS: &[&str] = &[
     "code", "dev", "workspace", "src", "repos", "git", "Desktop", "personal",
 ];
 const LIMIT: usize = 300;
+// macOS 가 따로 보호하는 폴더. 열어 보는 순간 권한 창이 떠서 프로젝트를 찾을 때 건드리지 않는다
+const PROTECTED: &[&str] = &["Library", "Downloads", "Music", "Movies", "Pictures", "Public", "Applications", "Sites"];
 
 fn subdirs(dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
@@ -17,7 +19,7 @@ fn subdirs(dir: &Path) -> Vec<PathBuf> {
         .filter(|e| {
             let name = e.file_name();
             let name = name.to_string_lossy();
-            !name.starts_with('.') && name != "node_modules" && name != "Library"
+            !name.starts_with('.') && name != "node_modules" && !PROTECTED.contains(&name.as_ref())
         })
         .map(|e| e.path())
         .collect();
@@ -76,7 +78,7 @@ mod tests {
     // 가짜 홈: git 저장소 둘, 일반 폴더 하나, node_modules 안 저장소 하나
     fn fake_home() -> PathBuf {
         let home = std::env::temp_dir().join(format!("home-{}", std::process::id()));
-        for p in ["PycharmProjects/app-a/.git", "Documents/GitHub/org/app-b/.git", "PycharmProjects/notes", "projects/node_modules/x/.git"] {
+        for p in ["PycharmProjects/app-a/.git", "Documents/GitHub/org/app-b/.git", "PycharmProjects/notes", "projects/node_modules/x/.git", "Downloads/leaked/.git", "Music/x/.git"] {
             std::fs::create_dir_all(home.join(p)).unwrap();
         }
         home
@@ -89,6 +91,8 @@ mod tests {
         assert!(list.contains(&home.join("PycharmProjects/app-a").display().to_string()));
         assert!(list.contains(&home.join("Documents/GitHub/org/app-b").display().to_string()));
         assert!(!list.iter().any(|p| p.ends_with("notes") || p.contains("node_modules")));
+        // 보호 폴더(다운로드·음악)는 열지 않는다
+        assert!(!list.iter().any(|p| p.contains("/Downloads/") || p.contains("/Music/")));
     }
 
     #[test]

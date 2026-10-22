@@ -29,7 +29,8 @@ const debaterSystem = (d, code) =>
 
 const roster = (debaters) => debaters.map((d) => `- ${d.id}: ${d.name} (관점: ${d.stance || '자유'})`).join('\n')
 
-export async function runDebate(config, { ask, emit, live = () => {} }) {
+// caughtUp: 화면 재생이 지금까지의 대본을 다 읽을 때까지 기다린다. 라운드가 겹쳐 진행되지 않게 라운드 경계에서만 쓴다
+export async function runDebate(config, { ask, emit, live = () => {}, caughtUp = async () => {} }) {
   const { problem, moderator, debaters, maxRounds, projects = [] } = config
   let codebase = config.codebase || '' // 비어 있으면 아래에서 사회자가 프로젝트 목록 중에 고른다
   const byId = Object.fromEntries(debaters.map((d) => [d.id, d]))
@@ -42,7 +43,7 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
     live(who)
     try {
       for (let attempt = 0; ; attempt++) {
-        const { data } = await ask(req)
+        const { data } = await ask({ ...req, who }) // who: 화면이 로그인 끊김 안내에 누구 차례인지 보여 줄 때 쓴다
         if (data) return data
         if (attempt >= 1) throw new Error('모델 응답이 형식에 맞지 않습니다')
       }
@@ -73,8 +74,9 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
     } catch (e) {
       if (!e.limit) throw e
       fainted.add(d.id)
-      emit({ type: 'faint', who: d.id })
-      say('mod', 'relay', `${d.name} 님이 기절했습니다. 남은 분들로 계속하겠습니다.`)
+      emit({ type: 'faint', who: d.id, reason: e.reason ?? 'limit' })
+      const why = e.reason === 'auth' ? '로그인이 끊겨 자리를 떠났습니다' : '기절했습니다'
+      say('mod', 'relay', `${d.name} 님이 ${why}. 남은 분들로 계속하겠습니다.`)
       return null
     }
   }
@@ -115,6 +117,7 @@ export async function runDebate(config, { ask, emit, live = () => {} }) {
   let next = opening
 
   for (let n = 1; n <= maxRounds; n++) {
+    if (n > 1) await caughtUp() // 앞 라운드를 다 들은 뒤에 다음 라운드 계산을 시작한다
     // 라운드마다 첫 발언자를 한 칸씩 돌린다
     const alive = standing(debaters)
     if (!alive.length) break

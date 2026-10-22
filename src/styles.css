@@ -170,9 +170,79 @@ textarea {
   resize: vertical;
 }
 .setup-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 14px;
+}
+.host-card,
+.rule-card {
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line);
+  box-shadow: var(--pop);
+  padding: 14px 16px;
+}
+.host-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  border-top: 10px solid var(--night);
+}
+.host-card .face {
+  border-radius: 50%;
+  background: #e8e6f5;
+  border: 2.5px solid var(--ink);
+}
+.host-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 14px;
+  align-items: end;
+}
+.host-fields .card-title {
+  grid-column: 1 / -1;
+}
+.rule-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 14px;
+  align-content: center;
+  border-top: 10px solid var(--spot);
+}
+.rule-card .card-title {
+  grid-column: 1 / -1;
+}
+.card-title {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 20px;
+}
+.setup-row .field label,
+.setup-row .field-label {
+  color: #555;
+  margin-bottom: 4px;
+}
+/* 설정 화면의 입력칸·버튼 높이를 하나로 맞춘다 */
+.setup select,
+.setup .seat-card input,
+.setup .btn.small,
+.setup .stepper strong {
+  height: 38px;
+  box-sizing: border-box;
+}
+.setup .field select {
+  width: 100%;
+}
+.setup .stepper strong {
+  display: grid;
+  place-items: center;
+  min-width: 3em;
+}
+.setup .btn.small {
+  display: inline-grid;
+  place-items: center;
+  box-shadow: 2px 2px 0 var(--ink);
 }
 .field label,
 .field-label {
@@ -220,21 +290,24 @@ select,
   background: color-mix(in srgb, var(--c) 35%, #fff);
   border: 2.5px solid var(--ink);
 }
-.mod-card {
-  display: flex;
-  align-items: end;
-  gap: 8px;
-}
-.mod-card .face {
-  border-radius: 50%;
-  background: #e8e6f5;
-  border: 2.5px solid var(--ink);
-}
 
 .code-path {
   font-size: 14px !important;
   font-weight: 500 !important;
   opacity: 0.8;
+}
+/* 입력칸의 기본 최소 폭 때문에 4~5명일 때 카드 밖으로 삐져나와 옆 카드를 덮던 것을 막는다 */
+.seat-card > *,
+.voice-pick > * {
+  min-width: 0;
+}
+.seat-card input,
+.seat-card select,
+.seat-card textarea {
+  width: 100%;
+}
+.voice-pick .btn {
+  flex-shrink: 0;
 }
 .seat-card .seat-name {
   font-family: var(--display);
@@ -828,6 +901,12 @@ select,
 }
 
 /* 연결 확인 */
+.gate-checking {
+  margin: 80px 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 18px;
+}
 .gate {
   display: grid;
   gap: 20px;
@@ -1046,7 +1125,64 @@ kbd {
   to { transform: rotate(360deg); }
 }
 @media (max-width: 860px) {
+  .setup-row,
+  .host-fields {
+    grid-template-columns: 1fr;
+  }
   .gate-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* 로그인이 끊겼을 때 토론을 세워 두는 창 */
+.pause-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 12, 30, 0.72);
+  z-index: 20;
+}
+.pause-card {
+  max-width: 560px;
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line);
+  box-shadow: var(--pop);
+  padding: 22px 24px;
+}
+.pause-card h2 {
+  margin: 0 0 8px;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 24px;
+}
+.pause-card p,
+.pause-card ol {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.pause-card code {
+  background: #eee;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.pause-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.pause-actions.secondary {
+  gap: 18px;
+  margin-top: 14px;
+}
+.pause-actions .link {
+  display: inline;
+  margin: 0;
+}
+.btn.small-primary {
+  font-size: 16px;
+  padding: 8px 16px;
 }

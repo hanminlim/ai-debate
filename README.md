@@ -11,29 +11,38 @@
 
 ## 설치
 
-1. [Releases](https://github.com/hanminlim/ai-debate/releases) 에서 최신 `.dmg` 를 받아 `AI Debate` 를 Applications 로 옮깁니다.
-2. Claude Code 와 Codex 중 하나 이상을 설치하고 로그인합니다.
-
-   ```bash
-   npm install -g @anthropic-ai/claude-code && claude auth login
-   npm install -g @openai/codex && codex login
-   ```
-
-### 처음 열 때
-
-서명하지 않은 앱이라 macOS 가 "확인되지 않은 개발자" 경고를 띄웁니다.
-Applications 에서 앱을 **우클릭 → 열기 → 열기** 를 한 번 하면 그다음부터는 그냥 열립니다.
-그래도 열리지 않으면 터미널에서 아래를 한 번 실행합니다.
+터미널에 한 줄을 붙여 넣으면 최신 버전을 받아 `/Applications` 에 설치하고 엽니다.
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/AI Debate.app"
+curl -fsSL https://raw.githubusercontent.com/hanminlim/ai-debate/main/install.sh | sh
 ```
+
+그다음 Claude Code 와 Codex 중 하나 이상을 설치하고 로그인합니다. 둘 다 써도 됩니다.
+
+```bash
+npm install -g @anthropic-ai/claude-code && claude auth login
+npm install -g @openai/codex && codex login
+```
+
+설치한 뒤에는 앱이 열릴 때 새 버전을 확인하고, 있으면 상단에 "새 버전 설치" 버튼이 뜹니다. 누르면 받아서 서명을 확인하고 다시 시작합니다.
+
+### .dmg 로 설치하기
+
+[Releases](https://github.com/hanminlim/ai-debate/releases) 에서 `.dmg` 를 받아 설치해도 됩니다. 다만 Apple 개발자 서명이 없는 앱이라
+처음 열 때 macOS 가 "확인되지 않은 개발자" 경고를 띄우고 휴지통으로 보내기만 제안합니다. 그럴 때는
+
+1. 경고 창을 닫고 **시스템 설정 › 개인정보 보호 및 보안** 으로 갑니다.
+2. 아래쪽 보안 항목의 "AI Debate 이(가) 차단되었습니다" 옆 **그래도 열기** 를 누릅니다.
+
+한 번 열면 그다음부터는 그냥 열립니다.
 
 ## 쓰는 법
 
 ### 1. 연결 확인
 
-앱을 열면 이 화면이 먼저 뜹니다. Claude Code·Codex 중 하나 이상이 연결되고 폴더 접근이 허용돼야 시작 버튼이 열립니다.
+앱을 열면 먼저 연결을 확인합니다. 모두 갖춰져 있으면 바로 설정 화면으로 넘어가고, 빠진 게 있을 때만 이 화면이 뜹니다.
+Claude Code·Codex 중 하나 이상이 연결되고 폴더 접근이 허용돼야 넘어갈 수 있습니다. 터미널에서 설치나 로그인을 마치면 버튼을 누르지 않아도 몇 초 안에 바뀝니다.
+나중에 음성 엔진을 설치하거나 모델을 다시 검사하려면 설정 화면 오른쪽 위 "연결 관리"를 누릅니다.
 Claude 는 쓸 수 있는 모델을 실제로 짧게 불러 보고 되는 것만 보여 줍니다. 첫 확인에 몇 초 걸리고 결과는 저장해 두며, 다시 검사하려면 Claude 카드의 "모델 다시 검사"를 누릅니다(사용량을 조금 씁니다).
 
 ![연결 확인](docs/screenshots/01-gate.png)
@@ -86,9 +95,12 @@ Claude 는 쓸 수 있는 모델을 실제로 짧게 불러 보고 되는 것만
 
 라운드를 마무리하는 사회자 정리와 최종 결론은 넘길 수 없습니다. 연타해도 라운드를 건너뛰지 않고, ←도 현재 라운드 안에서만 되돌아갑니다.
 
-### 5. 기절
+### 5. 기절과 다시 로그인
 
 토론 중에 누군가의 구독 사용량이 바닥나면 그 사람은 무대에서 쓰러집니다. 토론자가 쓰러지면 나머지끼리 계속하고, 사회자가 쓰러지면 토론이 멈춥니다.
+
+로그인이 만료되면 토론이 그 자리에서 멈추고 안내 창이 뜹니다. "다시 로그인"을 누르면 터미널에서 로그인 명령이 실행되고,
+로그인을 마친 뒤 "로그인했어요"를 누르면 멈췄던 발언부터 이어서 진행합니다. 그 토론자를 빼고 진행하거나 토론을 끝낼 수도 있습니다.
 
 ![기절](docs/screenshots/06-faint.png)
 
@@ -144,8 +156,9 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
 
 ### 릴리즈
 
-`src-tauri/tauri.conf.json` 의 `version` 을 올리고 같은 번호로 태그를 push 하면,
-GitHub Actions 가 Apple Silicon·Intel 겸용(universal) `.dmg` 를 빌드해 Release 에 올립니다.
+`package.json`·`src-tauri/tauri.conf.json`·`src-tauri/Cargo.toml` 의 `version` 을 올리고 같은 번호로 태그를 push 하면,
+GitHub Actions 가 Apple Silicon·Intel 겸용(universal) `.dmg` 와 자동 업데이트 파일(`latest.json`, 서명된 `.app.tar.gz`)을 빌드해 Release 에 올립니다.
+업데이트 서명 키는 저장소 Secrets(`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`)에 있고, 공개키는 `tauri.conf.json` 에 있습니다.
 
 ```bash
 git tag v0.2.0

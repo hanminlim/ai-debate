@@ -1,6 +1,6 @@
 [package]
 name = "ai-debate"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 [lib]
@@ -17,6 +17,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "fs", "time", "macros", "sync"] }
 regex = "1"
 ureq = { version = "2", features = ["json"] }
+tauri-plugin-updater = "~2.13"
+tauri-plugin-process = "~2.3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

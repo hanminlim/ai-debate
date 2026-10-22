@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { ask, listProjects } from './api.js'
 import { ANCHOR, avatarUri, randomSeed } from './avatar.js'
 import { PHASES, runDebate } from './engine.js'
+import AuthPause from './AuthPause.jsx'
 import Gate from './Gate.jsx'
 import Remote from './Remote.jsx'
+import Update from './Update.jsx'
 import { applyEvent, initialView, toPrompt } from './script.js'
 import { VOICES, pauseSpeaking, play, resumeSpeaking, setRate, stopSpeaking, synthesize } from './voice.js'
 
@@ -84,6 +86,7 @@ export default function App() {
         continue
       }
       if (r.cursor >= r.events.length) {
+        drained(r)
         if (r.engineDone) break
         setWaiting(true)
         await sleep(r)
@@ -112,6 +115,42 @@ export default function App() {
 
   const voiceOf = (from) => (from === 'mod' ? config.moderator : config.debaters.find((d) => d.id === from)).voice
 
+  // 재생이 쌓인 대본을 다 읽었을 때 엔진에 알린다(라운드 경계에서 엔진이 기다린다)
+  const drained = (r) => {
+    for (const resolve of r.drainWaiters ?? []) resolve()
+    r.drainWaiters = []
+  }
+  const caughtUp = (r) =>
+    new Promise((resolve) => {
+      if (r.ctrl.signal.aborted || (!r.playing && r.cursor >= r.events.length)) return resolve()
+      ;(r.drainWaiters ??= []).push(resolve)
+    })
+
+  // 로그인이 끊기면 토론을 세워 두고 사용자의 선택을 기다린다: 다시 로그인해 이어 가기 / 그 토론자 빼기 / 중단
+  const [authIssue, setAuthIssue] = useState(null)
+  const authRef = useRef(null)
+  const askWithLogin = async (req, r) => {
+    const { who, ...rest } = req
+    for (;;) {
+      try {
+        return await ask(rest, r.ctrl.signal)
+      } catch (e) {
+        if (!e.auth || r.ctrl.signal.aborted) throw e
+        const name = who === 'mod' ? '사회자' : config.debaters.find((d) => d.id === who)?.name ?? who
+        const choice = await new Promise((resolve) => {
+          authRef.current = { provider: e.provider, who: name, canSkip: who !== 'mod', resolve }
+          setAuthIssue(authRef.current)
+        })
+        authRef.current = null
+        setAuthIssue(null)
+        if (choice === 'retry') continue
+        if (choice === 'skip') throw Object.assign(new Error(e.message), { limit: true, reason: 'auth' })
+        stop()
+        throw e
+      }
+    }
+  }
+
   const start = async () => {
     const r = { ctrl: new AbortController(), events: [], cursor: 0, applied: 0, current: -1, paused: false, engineDone: false }
     r.ctrl.signal.addEventListener('abort', () => r.item?.abort())
@@ -127,7 +166,8 @@ export default function App() {
       await runDebate(
         { ...config, projects },
         {
-          ask: (req) => ask(req, r.ctrl.signal),
+          ask: (req) => askWithLogin(req, r),
+          caughtUp: () => caughtUp(r),
           emit: (e) => {
             if (r.ctrl.signal.aborted) return
             // 음소거 중에는 음성을 만들지 않는다(다시 켜면 그 발언은 시스템 음성으로 읽는다)
@@ -158,6 +198,8 @@ export default function App() {
   }
 
   const stop = () => {
+    authRef.current?.resolve('stop')
+    if (run.current) drained(run.current)
     run.current?.ctrl.abort()
     wake(run.current ?? {})
     stopSpeaking()
@@ -228,7 +270,7 @@ export default function App() {
     setAudio((a) => ({ ...a, muted: !a.muted }))
   }
 
-  const onStage = !['gate', 'setup'].includes(status)
+  const onStage = !['gate', 'manage', 'setup'].includes(status)
   const keys = useRef({})
   keys.current = { ArrowRight: next, ArrowLeft: prev, ' ': toggle, ArrowUp: () => changeRate(0.1), ArrowDown: () => changeRate(-0.1), m: mute, M: mute }
   useEffect(() => {
@@ -250,6 +292,7 @@ export default function App() {
     <div className={`app ${onStage ? 'with-remote' : ''}`}>
       <header className="topbar">
         <h1 className="logo">토론 무대</h1>
+        <Update />
         {providers.length > 0 && (
           <span className="badge ok" title="각자 로그인한 구독 사용량에서 차감됩니다">
             연결됨: {providers.map((p) => (p === 'claude' ? 'Claude' : 'Codex')).join(' · ')}
@@ -260,6 +303,11 @@ export default function App() {
             토론 중단
           </button>
         )}
+        {status === 'setup' && (
+          <button className="btn ghost" onClick={() => setStatus('manage')}>
+            연결 관리
+          </button>
+        )}
         {onStage && status !== 'running' && (
           <button className="btn ghost" onClick={() => setStatus('setup')}>
             설정으로
@@ -267,6 +315,8 @@ export default function App() {
         )}
       </header>
       {status === 'gate' && <Gate onReady={ready} />}
+      {status === 'manage' && <Gate manual onReady={ready} />}
+      {authIssue && <AuthPause issue={authIssue} />}
       {status === 'setup' && <Setup config={config} setConfig={setConfig} models={models} onStart={start} />}
       {onStage && (
         <>
@@ -337,55 +387,62 @@ function Setup({ config, setConfig, models, onStart }) {
         <textarea
           id="problem"
           rows={4}
-          placeholder="예: 다섯 명짜리 팀이 주 4일제를 도입해도 될까? / xpert-creative-lab 의 인증 구조, 지금 이대로 괜찮을까?"
+          placeholder="예: 다섯 명짜리 팀이 주 4일제를 도입해도 될까?"
           value={config.problem}
           onChange={(e) => set({ problem: e.target.value })}
         />
       </section>
 
       <section className="setup-row">
-        <div className="mod-card">
-          <Face seed={config.moderator.seed} size={64} />
-        </div>
-        <div className="field">
-          <label htmlFor="mod-model">사회자 모델</label>
-          <ModelSelect
-            id="mod-model"
-            label="사회자 모델"
-            models={models}
-            value={config.moderator.model}
-            onChange={(model) => set({ moderator: { ...config.moderator, model } })}
-          />
-        </div>
-        <div className="field">
-          <span className="field-label">사회자 목소리</span>
-          <VoicePicker
-            label="사회자 목소리"
-            value={config.moderator.voice}
-            onChange={(voice) => set({ moderator: { ...config.moderator, voice } })}
-          />
-        </div>
-        <div className="field">
-          <span className="field-label">토론자 수</span>
-          <div className="stepper">
-            <button className="btn small" onClick={() => resize(n - 1)} disabled={n <= 2} aria-label="토론자 줄이기">
-              −
-            </button>
-            <strong>{n}명</strong>
-            <button className="btn small" onClick={() => resize(n + 1)} disabled={n >= 5} aria-label="토론자 늘리기">
-              +
-            </button>
+        <div className="host-card">
+          <Face seed={config.moderator.seed} size={84} />
+          <div className="host-fields">
+            <strong className="card-title">사회자</strong>
+            <div className="field">
+              <label htmlFor="mod-model">모델</label>
+              <ModelSelect
+                id="mod-model"
+                label="사회자 모델"
+                models={models}
+                value={config.moderator.model}
+                onChange={(model) => set({ moderator: { ...config.moderator, model } })}
+              />
+            </div>
+            <div className="field">
+              <span className="field-label">목소리</span>
+              <VoicePicker
+                label="사회자 목소리"
+                value={config.moderator.voice}
+                onChange={(voice) => set({ moderator: { ...config.moderator, voice } })}
+              />
+            </div>
           </div>
         </div>
-        <div className="field">
-          <label htmlFor="rounds">최대 라운드</label>
-          <select id="rounds" value={config.maxRounds} onChange={(e) => set({ maxRounds: Number(e.target.value) })}>
-            {[1, 2, 3, 4, 5].map((r) => (
-              <option key={r} value={r}>
-                {r}라운드
-              </option>
-            ))}
-          </select>
+
+        <div className="rule-card">
+          <strong className="card-title">진행</strong>
+          <div className="field">
+            <span className="field-label">토론자 수</span>
+            <div className="stepper">
+              <button className="btn small" onClick={() => resize(n - 1)} disabled={n <= 2} aria-label="토론자 줄이기">
+                −
+              </button>
+              <strong>{n}명</strong>
+              <button className="btn small" onClick={() => resize(n + 1)} disabled={n >= 5} aria-label="토론자 늘리기">
+                +
+              </button>
+            </div>
+          </div>
+          <div className="field">
+            <label htmlFor="rounds">최대 라운드</label>
+            <select id="rounds" value={config.maxRounds} onChange={(e) => set({ maxRounds: Number(e.target.value) })}>
+              {[1, 2, 3, 4, 5].map((r) => (
+                <option key={r} value={r}>
+                  {r}라운드
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </section>
 
@@ -571,6 +628,7 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
                 speaking={speaking?.from === d.id}
                 modelLabel={labelOf(models, d.model)}
                 fainted={view.fainted.includes(d.id)}
+                faintReason={view.faintReason[d.id]}
               />
             ))}
           </section>
@@ -612,7 +670,8 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
   )
 }
 
-function Panel({ d, i, seat, thinking, speaking, fainted, modelLabel }) {
+function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabel }) {
+  const left = faintReason === 'auth' // 로그인이 끊겨 빠진 경우
   const [open, setOpen] = useState(false)
   const lit = seat?.lit || fainted
 
@@ -629,10 +688,10 @@ function Panel({ d, i, seat, thinking, speaking, fainted, modelLabel }) {
         <Face seed={d.seed} size={132} silhouette={!lit} talking={speaking} fainted={fainted} />
         {!lit && <span className={`thinking ${thinking ? 'on' : ''}`}>{thinking ? '생각 중…' : '차례를 기다리는 중'}</span>}
         {lit && !fainted && <span className="burst" aria-hidden>짜잔!</span>}
-        {fainted && <span className="ko">기절</span>}
+        {fainted && <span className="ko">{left ? '퇴장' : '기절'}</span>}
         {speaking && <span className="on-air">발언 중</span>}
       </div>
-      {fainted && <p className="faint-note">사용량 한도에 걸려 쓰러졌습니다</p>}
+      {fainted && <p className="faint-note">{left ? '로그인이 끊겨 자리를 떠났습니다' : '사용량 한도에 걸려 쓰러졌습니다'}</p>}
       {seat?.summary && (
         <div className="bubbles">
           <div className="bubble">
