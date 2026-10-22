@@ -199,7 +199,9 @@ export default function Gate({ onReady, manual = false }) {
   if (!shown) {
     return (
       <main className="gate">
-        <p className="gate-checking">연결 확인 중…</p>
+        <p className="gate-checking">
+          <span className="spinner" aria-hidden /> Claude·Codex 로그인과 폴더 권한을 확인하고 있습니다
+        </p>
       </main>
     )
   }
@@ -210,7 +212,7 @@ export default function Gate({ onReady, manual = false }) {
         <h2>연결 확인</h2>
         <p>
           토론자는 이 컴퓨터에 로그인한 Claude 또는 Codex 로 말합니다. 둘 중 하나 이상 연결되고, 프로젝트 폴더를 읽을 권한이 있어야
-          시작할 수 있습니다.
+          시작할 수 있습니다. 터미널에서 설치·로그인을 마치거나 권한을 켜면 이 화면이 몇 초 안에 저절로 바뀝니다.
         </p>
       </section>
 
@@ -244,6 +246,11 @@ export default function Gate({ onReady, manual = false }) {
         <TtsCard tts={env?.tts} onInstalled={() => check()} />
       </div>
 
+      {!loading && !ready && (
+        <p className="gate-need">
+          {[!options.length && 'Claude 또는 Codex 연결', !foldersOk && '문서·데스크탑 폴더 권한'].filter(Boolean).join(', ')} 이(가) 필요합니다
+        </p>
+      )}
       <div className="gate-actions">
         <button className="btn" onClick={() => check()} disabled={loading}>
           다시 확인

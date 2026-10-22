@@ -135,16 +135,17 @@ export default function App() {
       try {
         return await ask(rest, r.ctrl.signal)
       } catch (e) {
-        if (!e.auth || r.ctrl.signal.aborted) throw e
+        // 한도는 기절로, 중단은 그대로 끝낸다. 로그인 끊김과 그 밖의 오류는 멈춰 세우고 사용자에게 묻는다
+        if (e.limit || r.ctrl.signal.aborted) throw e
         const name = who === 'mod' ? '사회자' : config.debaters.find((d) => d.id === who)?.name ?? who
         const choice = await new Promise((resolve) => {
-          authRef.current = { provider: e.provider, who: name, canSkip: who !== 'mod', resolve }
+          authRef.current = { kind: e.auth ? 'auth' : 'error', message: e.message, provider: e.provider ?? rest.model.split(':')[0], who: name, canSkip: who !== 'mod', resolve }
           setAuthIssue(authRef.current)
         })
         authRef.current = null
         setAuthIssue(null)
         if (choice === 'retry') continue
-        if (choice === 'skip') throw Object.assign(new Error(e.message), { limit: true, reason: 'auth' })
+        if (choice === 'skip') throw Object.assign(new Error(e.message), { limit: true, reason: e.auth ? 'auth' : 'error' })
         stop()
         throw e
       }
@@ -158,6 +159,7 @@ export default function App() {
     setView(initialView)
     setError('')
     setPaused(false)
+    resumeSpeaking() // 앞 토론을 일시정지한 채 끝냈어도 새 토론은 재생 상태로 시작한다
     setStatus('running')
     try {
       // 문제가 가리키는 프로젝트를 사회자가 고를 수 있게 이 맥의 프로젝트 폴더 목록을 넘긴다
@@ -329,6 +331,7 @@ export default function App() {
             status={status}
             error={error}
             onRetry={start}
+            onNew={() => setStatus('setup')}
           />
           <Remote
             audio={audio}
@@ -339,7 +342,7 @@ export default function App() {
             onPrev={prev}
             onToggle={toggle}
             onNext={next}
-            notice={notice}
+            notice={notice || (paused ? '일시정지됨 · Space 로 이어 듣기' : '')}
           />
         </>
       )}
@@ -458,13 +461,16 @@ function Setup({ config, setConfig, models, onStart }) {
             <input
               className="seat-name"
               aria-label={`토론자 ${i + 1} 이름`}
+              maxLength={8}
               value={d.name}
               onChange={(e) => setDebater(i, { name: e.target.value })}
             />
             <ModelSelect label={`${d.name} 모델`} models={models} value={d.model} onChange={(model) => setDebater(i, { model })} />
             <VoicePicker label={`${d.name} 목소리`} value={d.voice} onChange={(voice) => setDebater(i, { voice })} />
+            <span className="field-label">관점</span>
             <textarea
               aria-label={`${d.name} 관점`}
+              placeholder="이 토론자가 어떤 입장에서 말할지"
               rows={3}
               value={d.stance}
               onChange={(e) => setDebater(i, { stance: e.target.value })}
@@ -473,9 +479,12 @@ function Setup({ config, setConfig, models, onStart }) {
         ))}
       </section>
 
-      <button className="btn primary start" disabled={!ready} onClick={onStart}>
-        토론 시작
-      </button>
+      <div className="start-bar">
+        {!ready && <span className="start-hint">토론에 맡길 문제를 적으면 시작할 수 있습니다</span>}
+        <button className="btn primary start" disabled={!ready} onClick={onStart}>
+          토론 시작
+        </button>
+      </div>
     </main>
   )
 }
@@ -520,7 +529,7 @@ function CopyResult({ config, view }) {
   )
 }
 
-function Stage({ config, models, view, computing, speaking, status, error, onRetry }) {
+function Stage({ config, models, view, computing, speaking, status, error, onRetry, onNew }) {
   const [viewed, setViewed] = useState(null)
   const finalRef = useRef(null)
   const { rounds } = view
@@ -589,8 +598,11 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
         </div>
       )}
       {status === 'stopped' && (
-        <div className="alert">
+        <div className="alert neutral">
           토론을 중단했습니다.
+          <button className="btn small" onClick={onRetry}>
+            처음부터 다시
+          </button>
           {canCopy && <CopyResult config={config} view={view} />}
         </div>
       )}
@@ -599,6 +611,14 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
           사회자가 기절해 토론이 멈췄습니다. 사용량 한도가 풀린 뒤 다시 시작하세요.
           {canCopy && <CopyResult config={config} view={view} />}
         </div>
+      )}
+
+      {!round && status === 'running' && (
+        <section className="strip" style={{ '--cols': config.debaters.length }}>
+          {config.debaters.map((d, i) => (
+            <Panel key={d.id} d={d} i={i} modelLabel={labelOf(models, d.model)} />
+          ))}
+        </section>
       )}
 
       {round && (
@@ -629,6 +649,7 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
                 modelLabel={labelOf(models, d.model)}
                 fainted={view.fainted.includes(d.id)}
                 faintReason={view.faintReason[d.id]}
+                reveal={live}
               />
             ))}
           </section>
@@ -638,7 +659,7 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
             byId={byId}
             moderator={config.moderator}
             follow={live && status === 'running'}
-            next={live && computing && status === 'running' ? (computing === 'mod' ? '사회자' : byId[computing].name) : null}
+            next={live && computing && status === 'running' ? (computing === 'mod' ? '사회자가' : `${byId[computing].name} 님이`) : null}
             speaking={speaking}
           />
         </>
@@ -648,7 +669,14 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
         <section className="final-cut" ref={finalRef}>
           <div className="final-head">
             <span className="who">최종 결론</span>
-            <CopyResult config={config} view={view} />
+            <div className="final-actions">
+              <CopyResult config={config} view={view} />
+              {status !== 'running' && (
+                <button className="btn small" onClick={onNew}>
+                  새 토론
+                </button>
+              )}
+            </div>
           </div>
           <h2>{view.final.headline}</h2>
           <p className="final-answer">{view.final.answer}</p>
@@ -670,14 +698,15 @@ function Stage({ config, models, view, computing, speaking, status, error, onRet
   )
 }
 
-function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabel }) {
-  const left = faintReason === 'auth' // 로그인이 끊겨 빠진 경우
+// reveal: 지금 라운드에서만 불 켜짐·짜잔 연출을 한다(지난 라운드 탭을 볼 때는 바로 보여 준다)
+function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabel, reveal = true }) {
+  const left = faintReason === 'auth' || faintReason === 'error' // 기절이 아니라 연결 문제로 빠진 경우
   const [open, setOpen] = useState(false)
   const lit = seat?.lit || fainted
 
   return (
     <article
-      className={`panel ${lit ? 'lit' : 'dark'} ${speaking ? 'speaking' : ''} ${fainted ? 'fainted' : ''}`}
+      className={`panel ${lit ? 'lit' : 'dark'} ${lit && reveal ? 'reveal' : ''} ${speaking ? 'speaking' : ''} ${fainted ? 'fainted' : ''}`}
       style={{ '--c': d.color, '--tilt': `${i % 2 ? 0.6 : -0.6}deg` }}
     >
       <header className="panel-head">
@@ -686,12 +715,12 @@ function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabe
       </header>
       <div className="figure">
         <Face seed={d.seed} size={132} silhouette={!lit} talking={speaking} fainted={fainted} />
-        {!lit && <span className={`thinking ${thinking ? 'on' : ''}`}>{thinking ? '생각 중…' : '차례를 기다리는 중'}</span>}
-        {lit && !fainted && <span className="burst" aria-hidden>짜잔!</span>}
+        {!lit && <Thinking on={thinking} />}
+        {lit && reveal && !fainted && <span className="burst" aria-hidden>짜잔!</span>}
         {fainted && <span className="ko">{left ? '퇴장' : '기절'}</span>}
         {speaking && <span className="on-air">발언 중</span>}
       </div>
-      {fainted && <p className="faint-note">{left ? '로그인이 끊겨 자리를 떠났습니다' : '사용량 한도에 걸려 쓰러졌습니다'}</p>}
+      {fainted && <p className="faint-note">{{ auth: '로그인이 끊겨 자리를 떠났습니다', error: '연결 문제로 자리를 떠났습니다' }[faintReason] ?? '사용량 한도에 걸려 쓰러졌습니다'}</p>}
       {seat?.summary && (
         <div className="bubbles">
           <div className="bubble">
@@ -705,6 +734,18 @@ function Panel({ d, i, seat, thinking, speaking, fainted, faintReason, modelLabe
       )}
     </article>
   )
+}
+
+// 오래 생각할 때 멈춘 게 아니라는 걸 보여 주려고 경과 초를 붙인다
+function Thinking({ on }) {
+  const [sec, setSec] = useState(0)
+  useEffect(() => {
+    setSec(0)
+    if (!on) return
+    const t = setInterval(() => setSec((s) => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [on])
+  return <span className={`thinking ${on ? 'on' : ''}`}>{on ? `생각 중… ${sec >= 3 ? `${sec}초` : ''}` : '차례를 기다리는 중'}</span>
 }
 
 const KIND_LABEL = { briefing: '쟁점 정리', verdict: '라운드 정리', conclusion: '결론', question: '질문', answer: '답변' }
@@ -764,7 +805,7 @@ function Messenger({ round, byId, moderator, next, speaking, follow }) {
         })}
         {next && (
           <li className="msg typing-row">
-            <span className="typing-label">{next} 님이 다음 발언을 준비하고 있습니다</span>
+            <span className="typing-label">{next} 다음 발언을 준비하고 있습니다</span>
             <Dots />
           </li>
         )}

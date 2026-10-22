@@ -492,6 +492,8 @@ select,
 .panel.lit {
   background: var(--paper) radial-gradient(ellipse 70% 55% at 50% 0%, color-mix(in srgb, var(--c) 35%, transparent), transparent 70%);
   color: var(--ink);
+}
+.panel.lit.reveal {
   animation: lights-on 0.7s ease-out;
 }
 @keyframes lights-on {
@@ -738,7 +740,8 @@ select,
   list-style: none;
   margin: 0;
   padding: 18px;
-  height: 560px;
+  min-height: 200px;
+  max-height: min(560px, 62vh);
   overflow-y: auto;
   display: grid;
   align-content: start;
@@ -902,10 +905,26 @@ select,
 
 /* 연결 확인 */
 .gate-checking {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
   margin: 80px 0;
-  text-align: center;
   color: var(--muted);
-  font-size: 18px;
+  font-size: 17px;
+}
+.gate-need {
+  margin: 0;
+  text-align: center;
+  color: #ff8fab;
+  font-weight: 700;
+}
+/* 카드 안 버튼은 내용 폭만 차지한다 */
+.gate-card > .btn {
+  justify-self: start;
+}
+.gate-card > .link {
+  justify-self: start;
 }
 .gate {
   display: grid;
@@ -1185,4 +1204,54 @@ kbd {
 .btn.small-primary {
   font-size: 16px;
   padding: 8px 16px;
+}
+
+/* 막힌 주요 버튼: 노랑이 흐려져 갈색으로 보이지 않게 회색으로 */
+.btn.primary:disabled {
+  background: #4a4d6e;
+  color: #a9acd0;
+  border-color: #2b2e4f;
+  box-shadow: none;
+  opacity: 1;
+}
+
+/* 설정: 시작 버튼을 화면 아래에 붙여 둔다 */
+.start-bar {
+  position: sticky;
+  bottom: 16px;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(23, 26, 51, 0.92);
+  z-index: 5;
+}
+.start-hint {
+  color: var(--muted);
+  font-size: 14px;
+}
+.seat-card .field-label {
+  margin-bottom: -4px;
+  font-size: 12px;
+  color: #666;
+}
+
+/* 중단: 오류가 아니라 사용자가 멈춘 것이라 중립 색 */
+.alert.neutral {
+  background: #2b2e52;
+  border-color: #55598a;
+}
+.final-actions {
+  display: flex;
+  gap: 8px;
+}
+.error-detail {
+  font-family: ui-monospace, monospace;
+  font-size: 13px !important;
+  background: #f1efe6;
+  padding: 8px 10px;
+  border-radius: 4px;
+  word-break: break-word;
 }

@@ -75,7 +75,7 @@ export async function runDebate(config, { ask, emit, live = () => {}, caughtUp =
       if (!e.limit) throw e
       fainted.add(d.id)
       emit({ type: 'faint', who: d.id, reason: e.reason ?? 'limit' })
-      const why = e.reason === 'auth' ? '로그인이 끊겨 자리를 떠났습니다' : '기절했습니다'
+      const why = { auth: '로그인이 끊겨 자리를 떠났습니다', error: '연결 문제로 자리를 떠났습니다' }[e.reason] ?? '기절했습니다'
       say('mod', 'relay', `${d.name} 님이 ${why}. 남은 분들로 계속하겠습니다.`)
       return null
     }

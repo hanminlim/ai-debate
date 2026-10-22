@@ -16,6 +16,7 @@ export const VOICES = [
 ]
 
 let current = null // 지금 재생 중인 것: { audio?, stop }
+let paused = false // 음소거 중 기다리기(wait)도 일시정지에 맞춰 멈추게 한다
 
 export function setRate(rate) {
   if (current?.audio) current.audio.playbackRate = rate
@@ -27,11 +28,13 @@ export function stopSpeaking() {
 }
 
 export function pauseSpeaking() {
+  paused = true
   current?.audio?.pause()
   speechSynthesis.pause()
 }
 
 export function resumeSpeaking() {
+  paused = false
   current?.audio?.play().catch(() => {})
   speechSynthesis.resume()
 }
@@ -49,10 +52,19 @@ const aborted = (signal) =>
     signal?.addEventListener('abort', () => resolve(), { once: true })
   })
 
+// 음소거일 때 읽는 시간만큼 기다린다. 일시정지된 동안은 시간이 흐르지 않는다
 const wait = (ms, signal) =>
   new Promise((resolve) => {
-    const t = setTimeout(resolve, ms)
-    signal?.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true })
+    let left = ms
+    const t = setInterval(() => {
+      if (!paused) left -= 100
+      if (left <= 0) done()
+    }, 100)
+    function done() {
+      clearInterval(t)
+      resolve()
+    }
+    signal?.addEventListener('abort', done, { once: true })
   })
 
 function playBlob(blob, rate, signal) {
