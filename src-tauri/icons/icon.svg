@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#171A33"/>
+  <!-- 뒤 말풍선 -->
+  <g stroke="#000" stroke-width="28" stroke-linejoin="round">
+    <path d="M430 300 h330 a90 90 0 0 1 90 90 v170 a90 90 0 0 1 -90 90 h-60 l40 110 -150 -110 h-160 a90 90 0 0 1 -90 -90 v-170 a90 90 0 0 1 90 -90z" fill="#FF4F81"/>
+  </g>
+  <!-- 앞 말풍선 -->
+  <g stroke="#000" stroke-width="28" stroke-linejoin="round">
+    <path d="M250 220 h330 a90 90 0 0 1 90 90 v170 a90 90 0 0 1 -90 90 h-170 l-150 120 40 -120 h-50 a90 90 0 0 1 -90 -90 v-170 a90 90 0 0 1 90 -90z" fill="#FFD447"/>
+  </g>
+  <g fill="#000">
+    <circle cx="320" cy="395" r="34"/>
+    <circle cx="415" cy="395" r="34"/>
+    <circle cx="510" cy="395" r="34"/>
+  </g>
+</svg>

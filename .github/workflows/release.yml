@@ -1,0 +1,46 @@
+# v* 태그를 push 하면 맥 앱(universal .dmg)을 빌드해 GitHub Release 에 올린다
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - run: npm ci
+
+      - name: 테스트
+        run: |
+          node --test src/
+          cargo test --manifest-path src-tauri/Cargo.toml
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: '토론 무대 ${{ github.ref_name }}'
+          releaseBody: '.dmg 를 받아 Applications 로 옮기세요. 서명되지 않은 앱이라 처음 열 때는 README 의 "처음 열 때" 안내를 따르세요.'
+          releaseDraft: false
+          args: --target universal-apple-darwin

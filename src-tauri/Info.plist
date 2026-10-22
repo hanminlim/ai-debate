@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>문서 폴더에 있는 프로젝트를 찾고, 토론자가 고른 프로젝트 코드를 읽기 전용으로 보기 위해 필요합니다.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>데스크탑에 있는 프로젝트를 찾고, 토론자가 고른 프로젝트 코드를 읽기 전용으로 보기 위해 필요합니다.</string>
+</dict>
+</plist>

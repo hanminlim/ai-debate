@@ -1,5 +1,7 @@
-// 음성: Supertonic(로컬 TTS 서버)이 만든 오디오를 재생하고, 서버가 없으면 브라우저 내장 음성으로 대신한다.
-// 오디오 재생이라 말하는 도중에도 속도를 바로 바꿀 수 있다
+// 음성: Supertonic(로컬 TTS 서버)이 만든 오디오를 재생하고, 엔진이 없으면 시스템 음성으로 대신한다.
+// 오디오 재생이라 말하는 도중에도 속도를 바로 바꾸고, 멈췄다 이어 들을 수 있다
+import { ttsAudio } from './api.js'
+
 export const VOICES = [
   { id: 'F1', label: '여성 1' },
   { id: 'F2', label: '여성 2' },
@@ -24,21 +26,28 @@ export function stopSpeaking() {
   speechSynthesis.cancel()
 }
 
-export const ttsHealth = () =>
-  fetch('/api/tts-health')
-    .then((r) => (r.ok ? r.json() : null))
-    .catch(() => null)
+export function pauseSpeaking() {
+  current?.audio?.pause()
+  speechSynthesis.pause()
+}
+
+export function resumeSpeaking() {
+  current?.audio?.play().catch(() => {})
+  speechSynthesis.resume()
+}
 
 // 발언이 대본에 올라오는 즉시 불러 두면, 앞사람이 말하는 동안 다음 음성이 만들어진다
 export function synthesize(text, voice) {
-  return fetch('/api/tts', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text, voice, lang: 'ko', response_format: 'wav' }),
-  })
-    .then((r) => (r.ok ? r.blob() : null))
+  return ttsAudio(text, voice)
+    .then((buf) => new Blob([buf], { type: 'audio/wav' }))
     .catch(() => null)
 }
+
+const aborted = (signal) =>
+  new Promise((resolve) => {
+    if (signal?.aborted) return resolve()
+    signal?.addEventListener('abort', () => resolve(), { once: true })
+  })
 
 const wait = (ms, signal) =>
   new Promise((resolve) => {
@@ -68,7 +77,7 @@ function playBlob(blob, rate, signal) {
   })
 }
 
-// 브라우저 내장 음성: Supertonic 서버가 없을 때만 쓴다. 속도는 다음 문장부터 반영된다
+// 시스템 음성: 음성 엔진이 없을 때만 쓴다. 속도는 다음 문장부터 반영된다
 const ko = () => speechSynthesis.getVoices().filter((v) => v.lang.replace('_', '-').startsWith('ko'))
 
 async function speakWeb(text, { rate, signal, who }) {
@@ -80,26 +89,24 @@ async function speakWeb(text, { rate, signal, who }) {
       u.lang = 'ko-KR'
       u.voice = voices[who % (voices.length || 1)] ?? null
       u.rate = rate
-      // onend 가 안 오는 크롬 버그 대비: 읽는 시간 추정치를 넘기면 다음으로 넘어간다
-      const guard = setTimeout(done, (sentence.length * 250) / rate + 4000)
       function done() {
-        clearTimeout(guard)
-        if (current?.stop === done) current = null
+        if (current?.stop === stop) current = null
         resolve()
       }
-      current = { stop: () => (speechSynthesis.cancel(), done()) }
+      const stop = () => (speechSynthesis.cancel(), done())
+      current = { stop }
       u.onend = done
       u.onerror = done
-      signal?.addEventListener('abort', current.stop, { once: true })
+      signal?.addEventListener('abort', stop, { once: true })
       speechSynthesis.speak(u)
     })
   }
 }
 
-// audio: synthesize() 가 돌려준 Promise. who: 브라우저 음성 대체 시 목소리를 고르는 순번
+// audio: synthesize() 가 돌려준 Promise. 만드는 중에 넘기기(abort)해도 기다리지 않고 바로 돌아간다
 export async function play(text, audio, { rate, muted, signal, who = 0 }) {
   if (muted) return wait(Math.min(600 + text.length * 30, 5000) / rate, signal)
-  const blob = await audio
+  const blob = await Promise.race([audio, aborted(signal).then(() => null)])
   if (signal?.aborted) return
   return blob ? playBlob(blob, rate, signal) : speakWeb(text, { rate, signal, who })
 }

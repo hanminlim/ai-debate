@@ -13,12 +13,28 @@ const MOODS = {
   faint: { eyes: ['xDizzy'], eyebrows: ['sadConcerned'], mouth: ['concerned'] },
 }
 
+// 사회자는 얼굴을 고정한다: 단정한 옆가르마 짧은 머리, 정장, 차분한 표정의 뉴스 앵커 차림
+export const ANCHOR = 'anchor'
+const ANCHOR_LOOK = {
+  top: ['shortRound'],
+  hairColor: ['2c1b18'],
+  skinColor: ['edb98a'],
+  clothing: ['blazerAndShirt'],
+  clothesColor: ['262e33'],
+  eyes: ['default'],
+  eyebrows: ['defaultNatural'],
+  mouth: ['serious'],
+  facialHairProbability: 0,
+  accessoriesProbability: 0,
+}
+
 const cache = new Map()
 
 export function avatarUri(seed, mood = 'idle') {
   const key = `${seed}:${mood}`
   if (!cache.has(key)) {
-    const svg = createAvatar(avataaars, { seed, ...CALM, ...MOODS[mood], backgroundColor: ['transparent'] })
+    const look = seed === ANCHOR ? ANCHOR_LOOK : CALM
+    const svg = createAvatar(avataaars, { seed, ...look, ...MOODS[mood], backgroundColor: ['transparent'] })
     cache.set(key, svg.toDataUri())
   }
   return cache.get(key)

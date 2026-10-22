@@ -79,6 +79,7 @@ test('재생하면 의견은 컷에 켜지고, 이후 발언만 메신저에 쌓
   assert.ok(kinds.has('briefing') && kinds.has('conclusion') && kinds.has('verdict'))
   assert.equal(view.final.headline, '최종')
   assert.equal(view.phase, 'final')
+  assert.equal(round.intro, '시작') // 논제 소개 멘트는 라운드에 남는다
 })
 
 test('결과 복사는 "~를 논의한 결과 ~ 결론" 형식의 프롬프트가 된다', async () => {

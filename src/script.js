@@ -17,8 +17,11 @@ export function applyEvent(view, e) {
   const next = e.from === 'mod' ? { ...view, modLine } : { ...view }
   const round = next.rounds.at(-1)
   if (!round) return next
+  // 논제 소개 멘트는 사회자 띠에서 곧 덮이므로 라운드에 남겨 논제 아래에 계속 보여 준다
   const updated =
-    e.kind === 'opinion'
+    e.kind === 'intro'
+      ? { ...round, intro: e.text }
+      : e.kind === 'opinion'
       ? { ...round, seats: { ...round.seats, [e.from]: { lit: true, summary: e.text, opinion: e.opinion } } }
       : STRIP_ONLY.has(e.kind)
         ? round

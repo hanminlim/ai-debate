@@ -10,7 +10,8 @@ export const PHASES = [
 ]
 
 const str = { type: 'string' }
-const obj = (properties) => ({ type: 'object', properties, required: Object.keys(properties) })
+// codex 의 구조화 출력은 additionalProperties:false 와 전 필드 required 를 요구한다(claude 도 그대로 받는다)
+const obj = (properties) => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false })
 const NO_MARKDOWN = ' 화면 말풍선에 그대로 뜨고 음성으로 읽히므로 마크다운 기호(**, #, -)를 쓰지 않는다.'
 
 const CODE_NOTE =
